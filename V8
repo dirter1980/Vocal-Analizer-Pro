@@ -1,0 +1,4225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Vocal Analyzer Pro v8.0 (Rev3.8)</title>
+    <!-- HTML全体を高画質キャプチャするための外部ライブラリ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #151c2c;
+            --card-border: #0284c7;
+            --text-main: #f0f4f8;
+            --text-sub: #94a3b8;
+            --oral-color: #eab308;
+            --throat-color: #a855f7;
+            
+            --f0-color: #3b82f6;
+            --low-phar-color: #10b981;
+            --high-phar-color: #d97706;
+            --twang-color: #f43f5e;
+            --other-color: #64748b;
+            --smooth-color: #06b6d4;
+
+            --nr-off-color: #64748b;
+            --nr-on-color: #f472b6;
+            --nr-on2-color: #db2777;
+
+            --env-off-color: #64748b;
+            --env-ind-color: #7dd3fc;
+            --env-out-color: #0284c7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100dvh;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: var(--text-main);
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            padding: 1px 3px;
+            gap: 1px;
+            position: relative;
+        }
+
+        .card-common {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 4px;
+            min-height: 0;
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        /* 1. 発声判定エリア */
+        .card-header {
+            padding: 0px 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex: 3.2;
+        }
+
+        .status-title-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-title {
+            font-size: 0.42rem;
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+
+        /* ステータス小窓（バッジ風）：発声判定ラベルのすぐ右隣へ配置 */
+        .status-subwindow-badge {
+            font-size: 0.55rem;
+            color: #38bdf8;
+            font-weight: 900;
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.6);
+            border-radius: 3px;
+            padding: 1px 4px;
+            white-space: nowrap;
+            display: inline-block;
+            box-shadow: 0 0 4px rgba(56, 189, 248, 0.25);
+            line-height: 1.0;
+        }
+
+        .status-value {
+            font-size: 1.35rem;
+            font-weight: 900;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+            line-height: 0.95;
+        }
+
+        .delta-value {
+            font-size: 1.05rem;
+            font-weight: 900;
+            color: var(--oral-color);
+            line-height: 0.95;
+        }
+
+        /* 2. メトリクス */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px;
+            flex: 2.6;
+            background: none;
+            border: none;
+        }
+
+        .metric-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 4px;
+            padding: 0px 3px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .metric-label {
+            font-size: 0.48rem;
+            color: var(--text-sub);
+            margin-bottom: -3px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 700;
+        }
+
+        .metric-value-box {
+            display: flex;
+            align-items: baseline;
+            gap: 3px;
+        }
+
+        .val-hz {
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #38bdf8;
+            line-height: 0.95;
+        }
+
+        .val-db {
+            font-size: 1.0rem;
+            font-weight: 900;
+            color: var(--text-sub);
+        }
+
+        /* 3. 口 vs 喉 比率バー */
+        .ratio-card {
+            padding: 0px 3px;
+            flex: 2.6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1px;
+        }
+
+        .ratio-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.55rem;
+            font-weight: 900;
+            color: var(--text-main);
+            line-height: 1.0;
+        }
+
+        .ratio-bar-wrapper {
+            height: 20px;
+            background-color: #000;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            position: relative;
+        }
+
+        .ratio-segment {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 900;
+            color: #000;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .seg-oral { background-color: var(--oral-color); }
+        .seg-throat { background-color: var(--throat-color); color: #fff; }
+
+        /* 4. 全周波数区分スタックバー */
+        .multi-ratio-card {
+            padding: 0px 3px;
+            flex: 2.6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1px;
+        }
+
+        .multi-bar-wrapper {
+            height: 18px;
+            background-color: #000;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            width: 100%;
+        }
+
+        .multi-segment {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 900;
+            color: #fff;
+            overflow: hidden;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+        }
+
+        .legend-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.5rem;
+            font-weight: 900;
+            line-height: 1.0;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 2px; }
+        .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+
+        /* 5. SPECTRUM */
+        .spectrum-card {
+            padding: 2px 4px;
+            flex: 8.5;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .spectrum-card.clickable-fft {
+            cursor: pointer;
+        }
+        .spectrum-card.clickable-fft:hover {
+            border-color: #38bdf8;
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+        }
+
+        .spectrum-card.hnr-pass-flash {
+            background-color: rgba(16, 185, 129, 0.28) !important;
+            border-color: #10b981 !important;
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.85);
+        }
+
+        .spectrum-header {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-bottom: 2px;
+            flex-shrink: 0;
+            pointer-events: none;
+        }
+        .spectrum-header button {
+            pointer-events: auto;
+        }
+
+        .standard-mode-row {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.46rem;
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+        .standard-mode-row.active {
+            display: flex;
+        }
+
+        .sono-panel {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.46rem;
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+        .sono-panel.active {
+            display: flex;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+        }
+
+        .sono-right-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .sono-time-range {
+            width: 80px;
+            height: 10px;
+            accent-color: var(--throat-color);
+        }
+
+        .btn-sub-mode {
+            background: rgba(2, 132, 199, 0.3);
+            border: 1px solid var(--card-border);
+            color: #fff;
+            font-size: 0.42rem;
+            font-weight: 800;
+            padding: 2px 4px;
+            border-radius: 3px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .btn-sub-mode.active {
+            background: var(--throat-color);
+            border-color: #fff;
+        }
+
+        .btn-tracer {
+            background: rgba(168, 85, 247, 0.35);
+            border: 1px dashed #d8b4fe;
+            color: #e9d5ff;
+        }
+        .btn-tracer.active {
+            background: var(--throat-color);
+            border: 1px solid #ffffff;
+            color: #ffffff;
+            box-shadow: 0 0 6px rgba(168, 85, 247, 0.9);
+            font-weight: 900;
+        }
+
+        canvas {
+            width: 100%;
+            flex: 1;
+            background-color: #000000;
+            border-radius: 3px;
+            display: block;
+            min-height: 0;
+            pointer-events: none;
+        }
+
+        /* 6. コントロールパネル */
+        .controls-grid-section {
+            padding: 2px 3px;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            flex: 9.0;
+        }
+
+        .controls-grid-header {
+            font-size: 0.46rem;
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+
+        .seven-cols-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 2px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .col-item {
+            flex: 1;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(2, 132, 199, 0.4);
+            padding: 2px 1px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .col-label {
+            font-size: 0.52rem;
+            font-weight: 900;
+            white-space: nowrap;
+            text-align: center;
+            z-index: 5;
+            line-height: 1.0;
+            padding-top: 1px;
+        }
+
+        .slider-wrapper {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1px 0;
+            min-height: 0;
+        }
+
+        .slider-wrapper::after {
+            content: "";
+            position: absolute;
+            top: 12px;
+            bottom: 12px;
+            left: 8%;
+            right: 8%;
+            background: linear-gradient(
+                to bottom,
+                rgba(148, 163, 184, 0.45) 1px, transparent 1px, transparent 10%
+            );
+            background-size: 100% 10%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .slider-wrapper::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 2%;
+            right: 2%;
+            height: 2px;
+            transform: translateY(-50%);
+            background: #38bdf8;
+            z-index: 2;
+            pointer-events: none;
+            box-shadow: 0 0 4px rgba(56, 189, 248, 0.9);
+        }
+
+        .fader-track-base {
+            position: absolute;
+            top: 12px;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 2px;
+            z-index: 1;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
+            pointer-events: none;
+        }
+
+        .fader-progress-fill {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 0%;
+            border-radius: 2px;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .slider-vertical {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            cursor: pointer;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 4;
+            background: transparent;
+            -webkit-appearance: none;
+        }
+
+        .slider-vertical::-webkit-slider-runnable-track {
+            background: transparent;
+            border: none;
+        }
+
+        .slider-vertical::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 11px;
+            height: 22px;
+            margin-top: 0px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.95);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+        }
+
+        #threshSlider::-webkit-slider-thumb { background: var(--text-main); }
+        #smoothSlider::-webkit-slider-thumb { background: var(--smooth-color); }
+        #wF0::-webkit-slider-thumb          { background: var(--f0-color); }
+        #wLowP::-webkit-slider-thumb        { background: var(--low-phar-color); }
+        #wHighP::-webkit-slider-thumb       { background: var(--high-phar-color); }
+        #wTwang::-webkit-slider-thumb       { background: var(--twang-color); }
+        #wOther::-webkit-slider-thumb       { background: var(--other-color); }
+
+        .slider-val {
+            font-size: 0.48rem;
+            color: #f1f5f9;
+            font-weight: 800;
+            text-align: center;
+            z-index: 5;
+            line-height: 1.0;
+            padding-bottom: 1px;
+            white-space: nowrap;
+        }
+
+        /* 操作セクション（2列×6行グリッド） */
+        .btn-col {
+            justify-content: flex-start;
+            padding: 1px 1px;
+            flex: 2.1;
+            gap: 1px;
+            min-width: 0;
+        }
+
+        .btn-grid-2col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: repeat(6, 1fr);
+            gap: 1.5px;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .btn-vertical {
+            width: 100%;
+            height: 100%;
+            padding: 0px 0px;
+            border-radius: 3px;
+            font-weight: 900;
+            font-size: 0.35rem;
+            border: none;
+            cursor: pointer;
+            white-space: nowrap;
+            text-align: center;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0px;
+            line-height: 1.0;
+        }
+
+        .btn-vertical .sub-txt {
+            font-size: 0.28rem;
+            font-weight: 700;
+            opacity: 0.9;
+            margin-top: 1px;
+        }
+
+        .btn-prepost {
+            background-color: #000000;
+            color: #ffffff;
+            border: 1.5px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+            flex-direction: row;
+            gap: 2px;
+        }
+        .btn-prepost.post-mode {
+            background-color: #eab308;
+            color: #000000;
+            border: 1.5px solid #ef4444;
+            box-shadow: 0 0 5px rgba(239, 68, 68, 0.7);
+        }
+
+        .btn-toggle { background-color: var(--f0-color); flex-direction: row; gap: 2px; }
+        .btn-test   { background-color: var(--low-phar-color); flex-direction: row; gap: 2px; }
+        
+        .btn-bgm    { background-color: var(--low-phar-color); border: 3px solid rgba(255, 255, 255, 0.85); box-shadow: 0 0 5px rgba(255,255,255,0.3); }
+        .btn-taiko  { background-color: var(--low-phar-color); border: 3px solid rgba(255, 255, 255, 0.85); box-shadow: 0 0 5px rgba(255,255,255,0.3); }
+        
+        .btn-rec {
+            background-color: #334155;
+            color: #ffffff;
+            flex-direction: row;
+            gap: 2px;
+        }
+        .btn-rec.recording {
+            background-color: #ef4444 !important;
+            color: #ffffff !important;
+            box-shadow: 0 0 6px rgba(239, 68, 68, 0.9);
+            animation: pulse-rec 1s infinite alternate;
+        }
+
+        @keyframes pulse-rec {
+            0% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        .rec-icon-metal {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ffffff 0%, #94a3b8 40%, #334155 100%);
+            border: 1px solid rgba(255,255,255,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 1px 2px rgba(255,255,255,0.8), 0 1px 2px rgba(0,0,0,0.5);
+            flex-shrink: 0;
+        }
+
+        .rec-icon-center-red {
+            width: 2px;
+            height: 2px;
+            border-radius: 50%;
+            background-color: #dc2626;
+            box-shadow: 0 0 2px rgba(220, 38, 38, 0.9);
+        }
+
+        .btn-filesave { 
+            background-color: var(--high-phar-color); 
+            color: #ef4444; 
+            text-shadow: 0.5px 0.5px 0px #000, -0.5px -0.5px 0px #000, 0.5px -0.5px 0px #000, -0.5px 0.5px 0px #000;
+            flex-direction: row;
+            gap: 2px;
+        }
+        .btn-fileopen { background-color: var(--high-phar-color); color: #ffffff; flex-direction: row; gap: 2px; }
+        .btn-spec     { background-color: var(--throat-color); flex-direction: row; gap: 2px; }
+        
+        .btn-nr {
+            background-color: var(--nr-off-color);
+            font-size: 0.35rem;
+        }
+        .btn-nr.mode-on {
+            background-color: var(--nr-on-color) !important;
+            color: #000000 !important;
+            font-weight: 900;
+        }
+        .btn-nr.mode-on2 {
+            background-color: var(--nr-on2-color) !important;
+            color: #ffffff !important;
+            font-weight: 900;
+        }
+
+        .btn-env {
+            background-color: var(--env-off-color);
+            font-size: 0.35rem;
+        }
+        .btn-env.mode-ind {
+            background-color: var(--env-ind-color) !important;
+            color: #000000 !important;
+            font-weight: 900;
+        }
+        .btn-env.mode-out {
+            background-color: var(--env-out-color) !important;
+            color: #ffffff !important;
+            font-weight: 900;
+        }
+
+        .btn-spare {
+            background-color: #334155;
+            color: #94a3b8;
+            border: 3px solid rgba(255, 255, 255, 0.85);
+            box-shadow: 0 0 5px rgba(255,255,255,0.3);
+            font-size: 0.34rem;
+            line-height: 1.1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+        }
+        .btn-spare.frozen {
+            background-color: #ef4444 !important;
+            color: #ffffff !important;
+            font-weight: 900;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.95);
+            animation: pulse-rec 1s infinite alternate;
+        }
+
+        /* 音声ファイルプレイヤーコントロール */
+        .file-player-card {
+            padding: 2px 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1.8;
+        }
+
+        .btn-audio-play-large {
+            width: 50px;
+            height: 100%;
+            font-size: 0.7rem;
+            font-weight: 900;
+            background-color: var(--oral-color);
+            color: #000000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-audio-play-large:disabled {
+            background-color: #334155;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .file-player-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .file-player-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.46rem;
+            color: var(--text-sub);
+        }
+
+        .file-name-span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 130px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .repeat-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            cursor: pointer;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .file-controls-row {
+            display: flex;
+            align-items: center;
+        }
+
+        .seek-slider {
+            flex: 1;
+            height: 8px;
+            accent-color: #0284c7;
+        }
+
+        /* === SPEC モーダル & FFT詳細隠し設定パネル === */
+        .modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(11, 15, 25, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            padding: 12px 10px;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--card-border);
+            margin-bottom: 10px;
+        }
+
+        .modal-title {
+            font-size: 0.95rem;
+            font-weight: 900;
+            color: var(--throat-color);
+        }
+
+        .btn-modal-close {
+            background: #ef4444;
+            color: #fff;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 900;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .modal-content-scroll {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-right: 4px;
+        }
+
+        .algo-category-group {
+            background: var(--card-bg);
+            border: 1px solid rgba(2, 132, 199, 0.4);
+            border-radius: 6px;
+            padding: 8px;
+        }
+
+        .category-title {
+            font-size: 0.7rem;
+            font-weight: 900;
+            color: #38bdf8;
+            margin-bottom: 6px;
+            border-left: 3px solid var(--throat-color);
+            padding-left: 6px;
+        }
+
+        .algo-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 6px;
+        }
+
+        .algo-item-btn {
+            background: rgba(168, 85, 247, 0.15);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            border-radius: 4px;
+            padding: 8px 10px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .group-container {
+            background: rgba(168, 85, 247, 0.15);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            border-radius: 4px;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .group-title {
+            font-size: 0.7rem;
+            font-weight: 900;
+            color: #fff;
+            display: block;
+        }
+
+        .algo-grid-2col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+        }
+
+        .algo-sub-btn {
+            background: #1f1430;
+            border: 1px solid rgba(168, 85, 247, 0.35);
+            border-radius: 4px;
+            padding: 6px 8px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .algo-sub-btn:active {
+            transform: scale(0.98);
+        }
+        .algo-sub-btn.selected {
+            border-color: var(--throat-color);
+            background: rgba(168, 85, 247, 0.45);
+            box-shadow: 0 0 6px rgba(168, 85, 247, 0.7);
+        }
+
+        .algo-item-btn:active {
+            transform: scale(0.98);
+        }
+
+        .algo-item-btn.selected {
+            border-color: var(--throat-color);
+            background: rgba(168, 85, 247, 0.35);
+            box-shadow: 0 0 6px rgba(168, 85, 247, 0.6);
+        }
+
+        .algo-name {
+            font-size: 0.65rem;
+            font-weight: 900;
+            color: #fff;
+            display: block;
+        }
+
+        .algo-desc {
+            font-size: 0.42rem;
+            color: var(--text-sub);
+            margin-top: 1px;
+            line-height: 1.15;
+            font-family: inherit;
+        }
+        
+        .desc-block {
+            display: inline-block;
+            margin-top: 1px;
+            font-size: 0.42rem;
+            color: var(--text-sub);
+            background: none;
+            padding: 0;
+            border-radius: 0;
+            white-space: nowrap;
+        }
+
+        /* FFT隠し詳細設定パネル用スタイル */
+        .fft-config-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: var(--card-bg);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .fft-config-title {
+            font-size: 0.7rem;
+            font-weight: 900;
+            color: #38bdf8;
+            border-left: 3px solid #38bdf8;
+            padding-left: 6px;
+        }
+        .fft-config-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.55rem;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+        .fft-select, .fft-input-range {
+            background: #0b0f19;
+            color: #fff;
+            border: 1px solid #0284c7;
+            border-radius: 4px;
+            padding: 4px 6px;
+            font-size: 0.55rem;
+            font-weight: 800;
+        }
+        .fft-input-range {
+            width: 110px;
+            accent-color: #38bdf8;
+        }
+
+        /* 太鼓設定モーダル用スタイル */
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: var(--card-bg);
+            border: 1px solid rgba(10, 185, 129, 0.4);
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .setting-title {
+            font-size: 0.7rem;
+            font-weight: 900;
+            color: #10b981;
+            border-left: 3px solid #10b981;
+            padding-left: 6px;
+        }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.55rem;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+        .setting-options {
+            display: flex;
+            gap: 4px;
+        }
+        .setting-opt-btn {
+            background: #0b0f19;
+            color: var(--text-sub);
+            border: 1px solid var(--card-border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.5rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .setting-opt-btn.active {
+            background: #10b981;
+            color: #000000;
+            border-color: #fff;
+        }
+        .taiko-bpm-slider {
+            width: 130px;
+            accent-color: #10b981;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container" id="mainAppContainer">
+    <!-- 1. 発声判定エリア -->
+    <div class="card-common card-header">
+        <div>
+            <!-- 発声判定ラベルとステータス小窓（バッジ）を横並びにするブロック -->
+            <div class="status-title-row">
+                <span class="status-title">発声判定</span>
+                <span class="status-subwindow-badge" id="statusSubWindow">アイドル中</span>
+            </div>
+            <div class="status-value" id="statusText">待機中</div>
+        </div>
+        <div style="text-align: right;">
+            <div class="status-title">Δ (ピーク比)</div>
+            <div class="delta-value" id="deltaText">-- dB</div>
+        </div>
+    </div>
+
+    <div class="metrics-row">
+        <div class="metric-card">
+            <div class="metric-label">基音 (F0) <span id="noteName">--</span></div>
+            <div class="metric-value-box">
+                <span class="val-hz" id="f0Hz">--<span style="font-size:0.5rem">Hz</span></span>
+                <span class="val-db" id="f0Db">--<span style="font-size:0.5rem">dB</span></span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">高音Phar</div>
+            <div class="metric-value-box">
+                <span class="val-hz" style="color:var(--high-phar-color)" id="harmHz">--<span style="font-size:0.5rem">Hz</span></span>
+                <span class="val-db" id="harmDb">--<span style="font-size:0.5rem">dB</span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card-common ratio-card">
+        <div class="ratio-header">
+            <span>口 (3.6kHz): <span id="oralDbText">--dB</span></span>
+            <span>喉 (4.0kHz+): <span id="throatDbText">--dB</span></span>
+        </div>
+        <div class="ratio-bar-wrapper">
+            <div class="ratio-segment seg-oral" id="barOral" style="width: 50%;">口 50%</div>
+            <div class="ratio-segment seg-throat" id="barThroat" style="width: 50%;">喉 50%</div>
+        </div>
+    </div>
+
+    <div class="card-common multi-ratio-card">
+        <div class="legend-row">
+            <div class="legend-item"><span class="dot" style="background:var(--f0-color)"></span>基音</div>
+            <div class="legend-item"><span class="dot" style="background:var(--low-phar-color)"></span>低Phar</div>
+            <div class="legend-item"><span class="dot" style="background:var(--high-phar-color)"></span>高Phar</div>
+            <div class="legend-item"><span class="dot" style="background:var(--twang-color)"></span>Twang</div>
+            <div class="legend-item"><span class="dot" style="background:var(--other-color)"></span>その他</div>
+        </div>
+        <div class="multi-bar-wrapper">
+            <div class="multi-segment" id="segF0" style="width: 20%; background: var(--f0-color);">20%</div>
+            <div class="multi-segment" id="segLowP" style="width: 20%; background: var(--low-phar-color);">20%</div>
+            <div class="multi-segment" id="segHighP" style="width: 20%; background: var(--high-phar-color);">20%</div>
+            <div class="multi-segment" id="segTwang" style="width: 20%; background: var(--twang-color);">20%</div>
+            <div class="multi-segment" id="segOther" style="width: 20%; background: var(--other-color);">20%</div>
+        </div>
+    </div>
+
+    <!-- 5. SPECTRUM -->
+    <div class="card-common spectrum-card clickable-fft" id="spectrumCard" title="1.FFT または 2.コームの時はタップで詳細設定">
+        <div class="spectrum-header">
+            <div class="standard-mode-row active" id="standardModeRow">
+                <span>SPECTRUM [<span id="currentSpecBadge">1. FFT</span>] <span id="fftTapHint" style="font-size:0.38rem; color:#38bdf8;">(タップで詳細設定)</span></span>
+                <div class="btn-group">
+                    <button class="btn-sub-mode active" id="btnSub1">LOG</button>
+                    <button class="btn-sub-mode" id="btnSub2">LINEAR</button>
+                </div>
+            </div>
+
+            <div class="sono-panel" id="sonoPanel">
+                <span style="font-size:0.43rem;" id="sonoPanelTitle">SPECTRUM [3. ソノグラム]</span>
+                <div class="sono-right-group">
+                    <div class="btn-group" id="sonoBtnGroup">
+                        <button class="btn-sub-mode active" id="btnSonoLog">LOG</button>
+                        <button class="btn-sub-mode" id="btnSonoLin">リニア</button>
+                        <button class="btn-sub-mode" id="btnSonoHarm">倍音</button>
+                        <button class="btn-sub-mode btn-tracer" id="btnSonoTracer">トレーサー</button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 3px;" id="sonoTimeContainer">
+                        <span style="font-size:0.41rem; color:var(--text-sub);">幅:</span>
+                        <input type="range" class="sono-time-range" id="sonoTimeSlider" min="1.0" max="30.0" step="1.0" value="5.0">
+                        <span id="sonoTimeVal" style="font-size:0.41rem; color:var(--text-main); min-width:24px; text-align:right;">5秒</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <canvas id="spectrumCanvas"></canvas>
+    </div>
+
+    <!-- コントロールパネル (第6カード / 2×6グリッド) -->
+    <div class="card-common controls-grid-section">
+        <div class="controls-grid-header">コントロールパネル (v8.0 Rev3.8)</div>
+        <div class="seven-cols-container">
+            <div class="col-item">
+                <span class="col-label" style="color:var(--text-main)">閾値</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillThresh" style="background: var(--text-main);"></div>
+                    <input type="range" class="slider-vertical" id="threshSlider" min="-120" max="-20" step="10.0" value="-70">
+                </div>
+                <span class="slider-val" id="threshVal">-70dB</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--smooth-color)">平滑化</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillSmooth" style="background: var(--smooth-color);"></div>
+                    <input type="range" class="slider-vertical" id="smoothSlider" min="0.0" max="1.0" step="0.05" value="0.0">
+                </div>
+                <span class="slider-val" id="smoothVal">0.00s</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--f0-color)">基音</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillWF0" style="background: var(--f0-color);"></div>
+                    <input type="range" class="slider-vertical" id="wF0" min="0" max="2.0" step="0.2" value="1.0">
+                </div>
+                <span class="slider-val" id="valWF0">1.0x</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--low-phar-color)">低Phar</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillWLowP" style="background: var(--low-phar-color);"></div>
+                    <input type="range" class="slider-vertical" id="wLowP" min="0" max="2.0" step="0.2" value="1.0">
+                </div>
+                <span class="slider-val" id="valWLowP">1.0x</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--high-phar-color)">高Phar</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillWHighP" style="background: var(--high-phar-color);"></div>
+                    <input type="range" class="slider-vertical" id="wHighP" min="0" max="4.0" step="0.4" value="2.0">
+                </div>
+                <span class="slider-val" id="valWHighP">2.0x</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--twang-color)">Twang</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillWTwang" style="background: var(--twang-color);"></div>
+                    <input type="range" class="slider-vertical" id="wTwang" min="0" max="50.0" step="5.0" value="25.0">
+                </div>
+                <span class="slider-val" id="valWTwang">25.0x</span>
+            </div>
+            <div class="col-item">
+                <span class="col-label" style="color:var(--other-color)">その他</span>
+                <div class="slider-wrapper">
+                    <div class="fader-track-base"></div>
+                    <div class="fader-progress-fill" id="fillWOther" style="background: var(--other-color);"></div>
+                    <input type="range" class="slider-vertical" id="wOther" min="0" max="2.0" step="0.2" value="1.0">
+                </div>
+                <span class="slider-val" id="valWOther">1.0x</span>
+            </div>
+            <!-- 操作セクション（2列×6行グリッド） -->
+            <div class="col-item btn-col">
+                <span class="col-label" style="color:#ffffff;">操作</span>
+                <div class="btn-grid-2col">
+                    <button class="btn-vertical btn-prepost" id="btnPrePost">PRE</button>
+                    <button class="btn-vertical btn-spec" id="btnSpec">SPEC</button>
+                    <button class="btn-vertical btn-toggle" id="btnStart">START</button>
+                    <button class="btn-vertical btn-test" id="btnTest">TEST</button>
+                    <button class="btn-vertical btn-bgm" id="btnBgm" title="タップ:再生/停止, 長押し:BGM設定メニュー">
+                        <span>BGM</span>
+                        <span class="sub-txt" id="bgmStatusText">停止中</span>
+                    </button>
+                    <button class="btn-vertical btn-taiko" id="btnTaiko" title="タップ:再生/停止, 長押し:詳細設定">
+                        <span>太鼓</span>
+                        <span class="sub-txt" id="taikoStatusText">停止中</span>
+                    </button>
+                    <button class="btn-vertical btn-nr" id="btnNR">NR:OFF</button>
+                    <button class="btn-vertical btn-env" id="btnEnv">ENV:OFF</button>
+                    <button class="btn-vertical btn-rec" id="btnRec">
+                        <div class="rec-icon-metal"><div class="rec-icon-center-red"></div></div>
+                        <span id="recBtnText">REC</span>
+                    </button>
+                    <button class="btn-vertical btn-spare" id="btnSpare" title="短押し:静止/再開, 長押し(300ms):ダイレクト・スナップショット保存">
+                        <span id="spareLine1">FREEZE</span>
+                        <span id="spareLine2" style="font-size:0.28rem; opacity:0.8;">Snap shot</span>
+                    </button>
+                    <button class="btn-vertical btn-filesave" id="btnFileSave">SAVE</button>
+                    <button class="btn-vertical btn-fileopen" id="btnFileOpen">OPEN</button>
+                </div>
+                <input type="file" id="audioFileInput" accept="audio/*, .mp3, .wav, .m4a, .aac, .ogg, .flac, .aiff, .mp4, .mov" style="display: none;">
+                <input type="file" id="bgmFileInput" accept="audio/*, .mp3, .wav, .m4a, .aac, .ogg, .flac, .aiff" style="display: none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- 音声ファイルプレイヤーコントロール -->
+    <div class="card-common file-player-card" id="filePlayerCard">
+        <button class="btn-audio-play-large" id="btnFilePlay" disabled>再生</button>
+        <div class="file-player-right">
+            <div class="file-controls-row">
+                <input type="range" class="seek-slider" id="seekSlider" min="0" max="100" value="0" step="0.1" disabled>
+            </div>
+            <div class="file-player-info">
+                <span class="file-name-span" id="fileNameDisplay">ファイル未選択</span>
+                <label class="repeat-toggle-label">
+                    <input type="checkbox" id="repeatToggle" checked> リピート
+                </label>
+                <span id="fileTimeDisplay">00:00 / 00:00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SPEC 解析レンズ モーダル -->
+    <div class="modal-overlay" id="specModal">
+        <div class="modal-header">
+            <div class="modal-title">SPEC 解析レンズ v8.0 Rev3.8</div>
+            <button class="btn-modal-close" id="btnModalClose">閉じる</button>
+        </div>
+        <div class="modal-content-scroll" id="specAlgoListContainer"></div>
+    </div>
+
+    <!-- BGM 詳細設定 モーダル -->
+    <div class="modal-overlay" id="bgmConfigModal">
+        <div class="modal-header">
+            <div class="modal-title" style="color:#10b981;">BGM 設定・曲選択メニュー</div>
+            <button class="btn-modal-close" id="btnBgmClose">閉じる</button>
+        </div>
+        <div class="modal-content-scroll">
+            <div class="setting-group">
+                <div class="setting-title">現在選択中のBGM</div>
+                <div class="setting-row">
+                    <span id="bgmModalFileName" style="font-size:0.6rem; color:#38bdf8; font-weight:900; word-break:break-all;">未選択</span>
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-title">曲ファイルの変更</div>
+                <div class="setting-row">
+                    <span>新しい音源ファイルを選びます:</span>
+                    <button class="setting-opt-btn active" id="btnBgmSelectFile" style="background:#10b981; color:#000; font-weight:900; padding:6px 12px;">📂 曲ファイルを選ぶ</button>
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-title">BGM 音量調整</div>
+                <div class="setting-row">
+                    <span>音量 (<span id="bgmVolumeVal">100</span>%):</span>
+                    <input type="range" class="taiko-bpm-slider" id="bgmVolumeSlider" min="0" max="150" step="5" value="100">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FFT詳細設定 隠しオーバーレイモーダル -->
+    <div class="modal-overlay" id="fftConfigModal">
+        <div class="modal-header">
+            <div class="modal-title" style="color:#38bdf8;">FFT 隠し詳細設定パネル</div>
+            <button class="btn-modal-close" id="btnFftClose">閉じる</button>
+        </div>
+        <div class="modal-content-scroll">
+            <div class="fft-config-group">
+                <div class="fft-config-title">FFT 演算パラメーター</div>
+                <div class="fft-config-row">
+                    <span>FFTサイズ (解像度):</span>
+                    <select class="fft-select" id="fftSizeSelect">
+                        <option value="1024">1024 (高速)</option>
+                        <option value="2048">2048 (標準)</option>
+                        <option value="4096" selected>4096 (高精度)</option>
+                        <option value="8192">8192 (超精密)</option>
+                    </select>
+                </div>
+                <div class="fft-config-row">
+                    <span>窓関数 (Window Function):</span>
+                    <select class="fft-select" id="fftWindowSelect">
+                        <option value="hann" selected>Hann (推奨)</option>
+                        <option value="hamming">Hamming</option>
+                        <option value="blackman">Blackman</option>
+                        <option value="rect">Rectangular (矩形)</option>
+                    </select>
+                </div>
+                <div class="fft-config-row">
+                    <span>解析スムージング:</span>
+                    <input type="range" class="fft-input-range" id="fftSmoothParam" min="0.5" max="0.95" step="0.05" value="0.85">
+                </div>
+            </div>
+            <div class="fft-config-group">
+                <div class="fft-config-title">表示スケーリング & ピーク感度</div>
+                <div class="fft-config-row">
+                    <span>上限周波数 (Max Hz):</span>
+                    <select class="fft-select" id="fftMaxHzSelect">
+                        <option value="5000">5 kHz</option>
+                        <option value="8000" selected>8 kHz (標準)</option>
+                        <option value="12000">12 kHz</option>
+                        <option value="20000">20 kHz (フル)</option>
+                    </select>
+                </div>
+                <div class="fft-config-row">
+                    <span>ピーク検出閾値補正:</span>
+                    <input type="range" class="fft-input-range" id="fftPeakSens" min="-10" max="10" step="1" value="0">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 太鼓詳細設定 モーダル -->
+    <div class="modal-overlay" id="taikoConfigModal">
+        <div class="modal-header">
+            <div class="modal-title" style="color:#10b981;">太鼓メトロノーム 詳細設定</div>
+            <button class="btn-modal-close" id="btnTaikoClose">閉じる</button>
+        </div>
+        <div class="modal-content-scroll">
+            <div class="setting-group">
+                <div class="setting-title">テンポ設定 (BPM)</div>
+                <div class="setting-row">
+                    <span>テンポ (♩=<span id="taikoBpmVal">40</span>):</span>
+                    <input type="range" class="taiko-bpm-slider" id="taikoBpmSlider" min="30" max="180" step="1" value="40">
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-title">リズムパターン</div>
+                <div class="setting-row">
+                    <span>パターン選択:</span>
+                    <div class="setting-options" id="taikoRhythmOptions">
+                        <button class="setting-opt-btn active" data-rhythm="standard">基準 (♩♩♩休)</button>
+                        <button class="setting-opt-btn" data-rhythm="four">♩♩♩♩ (4拍子)</button>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-title">音色・太鼓キャラクター</div>
+                <div class="setting-row">
+                    <span>音質選択:</span>
+                    <div class="setting-options" id="taikoToneOptions">
+                        <button class="setting-opt-btn" data-tone="low">深み低音重視</button>
+                        <button class="setting-opt-btn active" data-tone="standard">基準</button>
+                        <button class="setting-opt-btn" data-tone="high">アタック高音</button>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="setting-title">太鼓音量ブースト (最大20倍)</div>
+                <div class="setting-row">
+                    <span>音量倍率 (<span id="taikoGainVal">10</span>x):</span>
+                    <input type="range" class="taiko-bpm-slider" id="taikoGainSlider" min="1" max="20" step="1" value="10">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const SPEC_ALGORITHMS = [
+    {
+        category: "1. 信号表示・時間周波数ドメイン",
+        items: [
+            { id: "fft", name: "1. FFT", desc: "全帯域エネルギー & 共通<br><span class='desc-block'>▼F0(青)・▼Peak(黄) ※グラフタップで詳細設定</span>" },
+            { id: "comb", name: "2. コーム表示", desc: "ハーモニック・コーム解析<br><span class='desc-block'>（dB軸・逆三角完備、タップで詳細設定）</span>" },
+            { id: "sonogram", name: "3. ソノグラム", desc: "ログ・リニア・倍音軸に加え<br><span class='desc-block'>高次倍音追跡トレーサー</span>" }
+        ]
+    },
+    {
+        category: "2. 音声特徴量・品質評価パラメーター",
+        groups: [
+            {
+                groupTitle: "4. 共鳴・運動マップ",
+                isSubGroup: true,
+                items: [
+                    { id: "formant", name: "4-1. フォルマント", desc: "F1×F2(250-2500Hz)<br><span class='desc-block'>【F1 × F2 母音空間】</span>" },
+                    { id: "tiltRichness", name: "4-2. 倍音・抜け", desc: "スペクトル傾斜×高次倍音<br><span class='desc-block'>【傾斜 × 高次倍音比率】</span>" },
+                    { id: "modulation", name: "4-3. 揺らぎ・うねり", desc: "変調速度(Hz) × 変調深さ(dB)<br><span class='desc-block'>【本物のこぶし・ビブラート解析】</span>" },
+                    { id: "spreadConc", name: "4-4. 音色の拡散・収束", desc: "帯域分散度 × エネルギー密度<br><span class='desc-block'>【空間拡散 vs レーザー直進】</span>" }
+                ]
+            }
+        ],
+        items: [
+            { id: "harmonicClarity", name: "5. 倍音純度・クリアネス (HNR) 解析", desc: "目的の整数倍音とノイズ成分を分離<br><span class='desc-block'>合格基準: 85%以上 (プロ基準)</span>" },
+            { id: "energyGravity", name: "6. 声の重心・エネルギー密度モニター", desc: "スペクトル重心モニター<br><span class='desc-block'>理想重心目安: 1.5kHz〜3.0kHz</span>" }
+        ]
+    }
+];
+
+let selectedMainMode = "fft"; 
+let fftSubMode = "log";       
+let combSubMode = "hz";       
+let sonoAxisMode = "log";     
+let sonoTimeWindowSec = 5.0;  
+let globalPrePostMode = "PRE"; 
+
+let currentMode = "IDLE"; 
+let isFrozen = false;        
+
+let audioCtx = null;
+let analyser = null;
+let micStream = null;
+
+let mockTimer = null;
+let testOscillator = null;
+let testGain = null;
+let audioElement = null;
+let audioElementSource = null;
+let isSeeking = false;
+
+let mediaRecorder = null;
+let recordedChunks = [];
+let latestRecordedBlob = null;
+let latestRecordedBlobUrl = null;
+let lastFileObjectURL = null;
+
+let nrState = 0; 
+let nrHighpass = null;
+let nrLowpass = null;
+let nrDynamicsNode = null;
+
+let envState = 0;
+let envCorrectionFilter = null;
+
+let activeSourceNode = null;
+let needsDestination = false;
+
+/* === 完全独立系伴奏・太鼓用オーディオコンテキスト & 制御システム === */
+let independentAudioCtx = null;
+let bgmElement = null;
+let bgmSourceNode = null;
+let bgmGainNode = null;
+let isBgmPlaying = false;
+let bgmFileObjectUrl = null;
+let bgmFileName = "未選択";
+
+let isTaikoPlaying = false;
+let taikoTimerId = null;
+let taikoStep = 0;
+let taikoBpm = 40;
+let taikoRhythmType = "standard"; 
+let taikoToneType = "standard";   
+let taikoBoostGain = 10;          
+
+let sonogramCanvas = document.createElement('canvas');
+let sonogramCtx = sonogramCanvas.getContext('2d', { alpha: false });
+
+let smoothedF1 = 500;
+let smoothedF2 = 1500;
+let formantHistory = [];
+
+let smoothedTilt = -15;
+let smoothedRichness = 20;
+let tiltRichnessHistory = [];
+
+let pitchHistoryBuffer = []; 
+let modHistory = [];
+let spreadConcHistory = [];
+
+let displayPctOral = 50;
+let displayPctThroat = 50;
+let displayDbOral = -80;
+let displayDbThroat = -80;
+let displayRatios = [20, 20, 20, 20, 20];
+
+const fileNameDisplay = document.getElementById('fileNameDisplay');
+const fileTimeDisplay = document.getElementById('fileTimeDisplay');
+const btnFilePlay = document.getElementById('btnFilePlay');
+const seekSlider = document.getElementById('seekSlider');
+const repeatToggle = document.getElementById('repeatToggle');
+
+let currentFFTSize = 4096;
+let maxDisplayHz = 8000;
+
+const COLOR_F0 = '#3b82f6';
+const COLOR_LOW_P = '#10b981';
+const COLOR_HIGH_P = '#d97706';
+const COLOR_TWANG = '#f43f5e';
+const COLOR_OTHER = '#64748b';
+
+const btnPrePost = document.getElementById('btnPrePost');
+const btnStart = document.getElementById('btnStart');
+const btnTest = document.getElementById('btnTest');
+const btnRec = document.getElementById('btnRec');
+const recBtnText = document.getElementById('recBtnText');
+const btnSpare = document.getElementById('btnSpare');
+const spareLine1 = document.getElementById('spareLine1');
+const spareLine2 = document.getElementById('spareLine2');
+const btnFileSave = document.getElementById('btnFileSave');
+const btnFileOpen = document.getElementById('btnFileOpen');
+const btnNR = document.getElementById('btnNR');
+const btnEnv = document.getElementById('btnEnv');
+const btnSpec = document.getElementById('btnSpec');
+const audioFileInput = document.getElementById('audioFileInput');
+const threshSlider = document.getElementById('threshSlider');
+const threshVal = document.getElementById('threshVal');
+
+const smoothSlider = document.getElementById('smoothSlider');
+const smoothVal = document.getElementById('smoothVal');
+
+const wF0 = document.getElementById('wF0');
+const wLowP = document.getElementById('wLowP');
+const wHighP = document.getElementById('wHighP');
+const wTwang = document.getElementById('wTwang');
+const wOther = document.getElementById('wOther');
+
+const fillThresh = document.getElementById('fillThresh');
+const fillSmooth = document.getElementById('fillSmooth');
+const fillWF0 = document.getElementById('fillWF0');
+const fillWLowP = document.getElementById('fillWLowP');
+const fillWHighP = document.getElementById('fillWHighP');
+const fillWTwang = document.getElementById('fillWTwang');
+const fillWOther = document.getElementById('fillWOther');
+
+const valWF0 = document.getElementById('valWF0');
+const valWLowP = document.getElementById('valWLowP');
+const valWHighP = document.getElementById('valWHighP');
+const valWTwang = document.getElementById('valWTwang');
+const valWOther = document.getElementById('valWOther');
+
+const statusSubWindow = document.getElementById('statusSubWindow');
+const statusText = document.getElementById('statusText');
+const deltaText = document.getElementById('deltaText');
+const f0Hz = document.getElementById('f0Hz');
+const f0Db = document.getElementById('f0Db');
+const noteName = document.getElementById('noteName');
+const harmHz = document.getElementById('harmHz');
+const harmDb = document.getElementById('harmDb');
+
+const oralDbText = document.getElementById('oralDbText');
+const throatDbText = document.getElementById('throatDbText');
+const barOral = document.getElementById('barOral');
+const barThroat = document.getElementById('barThroat');
+
+const segF0 = document.getElementById('segF0');
+const segLowP = document.getElementById('segLowP');
+const segHighP = document.getElementById('segHighP');
+const segTwang = document.getElementById('segTwang');
+const segOther = document.getElementById('segOther');
+
+const canvas = document.getElementById('spectrumCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+const specModal = document.getElementById('specModal');
+const btnModalClose = document.getElementById('btnModalClose');
+const specAlgoListContainer = document.getElementById('specAlgoListContainer');
+const currentSpecBadge = document.getElementById('currentSpecBadge');
+
+const fftConfigModal = document.getElementById('fftConfigModal');
+const btnFftClose = document.getElementById('btnFftClose');
+const spectrumCard = document.getElementById('spectrumCard');
+const fftTapHint = document.getElementById('fftTapHint');
+const mainAppContainer = document.getElementById('mainAppContainer');
+
+/* BGM & 太鼓ボタン関連要素 */
+const btnBgm = document.getElementById('btnBgm');
+const bgmStatusText = document.getElementById('bgmStatusText');
+const bgmFileInput = document.getElementById('bgmFileInput');
+const bgmConfigModal = document.getElementById('bgmConfigModal');
+const btnBgmClose = document.getElementById('btnBgmClose');
+const bgmModalFileName = document.getElementById('bgmModalFileName');
+const btnBgmSelectFile = document.getElementById('btnBgmSelectFile');
+const bgmVolumeSlider = document.getElementById('bgmVolumeSlider');
+const bgmVolumeVal = document.getElementById('bgmVolumeVal');
+
+const btnTaiko = document.getElementById('btnTaiko');
+const taikoStatusText = document.getElementById('taikoStatusText');
+const taikoConfigModal = document.getElementById('taikoConfigModal');
+const btnTaikoClose = document.getElementById('btnTaikoClose');
+const taikoBpmSlider = document.getElementById('taikoBpmSlider');
+const taikoBpmVal = document.getElementById('taikoBpmVal');
+const taikoGainSlider = document.getElementById('taikoGainSlider');
+const taikoGainVal = document.getElementById('taikoGainVal');
+
+let currentStableStatus = "通常発声";
+let currentStableColor = "#ffffff";
+let statusFrameCount = 0;
+const STATUS_STABLE_FRAMES = 8;
+
+let f0HzValGlobal = 0;
+let maxHzGlobal = 0;
+
+/* --- ステータス小窓をいつでも即座に更新する共通関数 --- */
+function updateStatusSubWindow() {
+    const isAccompanimentActive = isBgmPlaying || isTaikoPlaying;
+    if (currentMode === "MIC" || currentMode === "REC") {
+        if (isAccompanimentActive) {
+            statusSubWindow.textContent = "マイク解析中(伴奏中)";
+        } else {
+            statusSubWindow.textContent = "マイク解析中";
+        }
+    } else if (currentMode === "TEST") {
+        statusSubWindow.textContent = "TEST音源";
+    } else if (currentMode === "FILE") {
+        statusSubWindow.textContent = "ファイル解析";
+    } else {
+        if (isAccompanimentActive) {
+            statusSubWindow.textContent = "▶︎伴奏中";
+        } else {
+            statusSubWindow.textContent = "アイドル中";
+        }
+    }
+}
+
+/* --- 完全独立系 AudioContext の初期化管理 --- */
+function getIndependentAudioContext() {
+    if (!independentAudioCtx || independentAudioCtx.state === 'closed') {
+        independentAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (independentAudioCtx.state === 'suspended') {
+        independentAudioCtx.resume();
+    }
+    return independentAudioCtx;
+}
+
+/* --- BGM 機能の実装（マイク連動音量補正対応版：3.5倍にマイナーチェンジ） --- */
+function updateBgmGainValue() {
+    if (!bgmGainNode) return;
+    const baseVol = parseFloat(bgmVolumeSlider.value) / 100;
+    // マイクON(MIC/REC)のときの自動ダッキング低下を打ち消す補正倍率を「3.5倍」に変更
+    const duckingMultiplier = (currentMode === "MIC" || currentMode === "REC") ? 3.5 : 1.0;
+    bgmGainNode.gain.value = baseVol * duckingMultiplier;
+}
+
+function toggleBgmPlayState() {
+    if (isBgmPlaying) {
+        stopBgm();
+    } else {
+        if (!bgmElement || !bgmElement.src) {
+            bgmConfigModal.classList.add('active');
+        } else {
+            startBgm();
+        }
+    }
+}
+
+function startBgm() {
+    if (!bgmElement) return;
+    const ctxInd = getIndependentAudioContext();
+    if (!bgmSourceNode) {
+        try {
+            bgmSourceNode = ctxInd.createMediaElementSource(bgmElement);
+            bgmGainNode = ctxInd.createGain();
+            updateBgmGainValue();
+            bgmSourceNode.connect(bgmGainNode);
+            bgmGainNode.connect(ctxInd.destination);
+        } catch(e) {}
+    } else {
+        updateBgmGainValue();
+    }
+    bgmElement.play().then(() => {
+        isBgmPlaying = true;
+        bgmStatusText.textContent = "再生中";
+        updateStatusSubWindow();
+        if (currentMode === "IDLE" && !window._loopRunning) {
+            startIdleStatusMonitor();
+        }
+    }).catch(err => {
+        console.error("BGM play error:", err);
+    });
+}
+
+function stopBgm() {
+    if (bgmElement) {
+        bgmElement.pause();
+    }
+    isBgmPlaying = false;
+    bgmStatusText.textContent = "停止中";
+    updateStatusSubWindow();
+}
+
+let bgmPressTimer = null;
+let bgmLongPressed = false;
+
+btnBgm.addEventListener('mousedown', () => {
+    bgmLongPressed = false;
+    if (bgmPressTimer) clearTimeout(bgmPressTimer);
+    bgmPressTimer = setTimeout(() => {
+        bgmLongPressed = true;
+        bgmConfigModal.classList.add('active');
+    }, 400);
+});
+btnBgm.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    bgmLongPressed = false;
+    if (bgmPressTimer) clearTimeout(bgmPressTimer);
+    bgmPressTimer = setTimeout(() => {
+        bgmLongPressed = true;
+        bgmConfigModal.classList.add('active');
+    }, 400);
+});
+btnBgm.addEventListener('mouseup', () => {
+    if (bgmPressTimer) { clearTimeout(bgmPressTimer); bgmPressTimer = null; }
+    if (!bgmLongPressed) toggleBgmPlayState();
+});
+btnBgm.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (bgmPressTimer) { clearTimeout(bgmPressTimer); bgmPressTimer = null; }
+    if (!bgmLongPressed) toggleBgmPlayState();
+});
+
+btnBgmClose.addEventListener('click', () => bgmConfigModal.classList.remove('active'));
+
+btnBgmSelectFile.addEventListener('click', () => {
+    bgmFileInput.value = "";
+    bgmFileInput.click();
+});
+
+bgmVolumeSlider.addEventListener('input', (e) => {
+    const vol = parseFloat(e.target.value);
+    bgmVolumeVal.textContent = Math.round(vol);
+    updateBgmGainValue();
+});
+
+bgmFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    bgmFileName = file.name;
+    bgmModalFileName.textContent = bgmFileName;
+    if (bgmFileObjectUrl) URL.revokeObjectURL(bgmFileObjectUrl);
+    bgmFileObjectUrl = URL.createObjectURL(file);
+
+    if (bgmElement) {
+        bgmElement.pause();
+        bgmElement.src = "";
+    }
+    bgmElement = document.createElement('audio');
+    bgmElement.preload = 'auto';
+    bgmElement.loop = true;
+    bgmElement.crossOrigin = "anonymous";
+    bgmElement.src = bgmFileObjectUrl;
+
+    bgmSourceNode = null;
+    startBgm();
+});
+
+/* --- 太鼓（メトロノーム）機能の実装（3.5倍にマイナーチェンジ） --- */
+function toggleTaikoPlayState() {
+    if (isTaikoPlaying) {
+        stopTaiko();
+    } else {
+        startTaiko();
+    }
+}
+
+function startTaiko() {
+    const ctxInd = getIndependentAudioContext();
+    isTaikoPlaying = true;
+    taikoStatusText.textContent = "再生中";
+    taikoStep = 0;
+    updateStatusSubWindow();
+
+    const intervalMs = (60 / taikoBpm) * 1000;
+    
+    playTaikoBeatSound(ctxInd);
+    
+    if (taikoTimerId) clearInterval(taikoTimerId);
+    taikoTimerId = setInterval(() => {
+        if (!isTaikoPlaying) return;
+        playTaikoBeatSound(ctxInd);
+    }, intervalMs);
+}
+
+function stopTaiko() {
+    isTaikoPlaying = false;
+    taikoStatusText.textContent = "停止中";
+    if (taikoTimerId) {
+        clearInterval(taikoTimerId);
+        taikoTimerId = null;
+    }
+    updateStatusSubWindow();
+}
+
+function playTaikoBeatSound(ctxInd) {
+    if (!isTaikoPlaying) return;
+    
+    let playSound = true;
+    if (taikoRhythmType === "standard" && (taikoStep % 4 === 3)) {
+        playSound = false;
+    }
+    taikoStep = (taikoStep + 1) % 4;
+
+    if (!playSound) return;
+
+    const now = ctxInd.currentTime;
+    const osc = ctxInd.createOscillator();
+    const gainNode = ctxInd.createGain();
+    
+    let baseFreq = 75;
+    let decayTime = 0.35;
+    
+    if (taikoToneType === "low") {
+        baseFreq = 55;
+        decayTime = 0.45;
+    } else if (taikoToneType === "high") {
+        baseFreq = 110;
+        decayTime = 0.25;
+    }
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(baseFreq * 2.2, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.04);
+    
+    // マイクON時は太鼓側もダッキング分を考慮して自動ブースト（3.5倍に変更）
+    const duckingMultiplier = (currentMode === "MIC" || currentMode === "REC") ? 3.5 : 1.0;
+    const masterGain = taikoBoostGain * duckingMultiplier; 
+    gainNode.gain.setValueAtTime(0.8 * masterGain, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + decayTime);
+    
+    osc.connect(gainNode);
+    gainNode.connect(ctxInd.destination);
+    
+    osc.start(now);
+    osc.stop(now + decayTime);
+}
+
+let taikoPressTimer = null;
+let taikoLongPressed = false;
+
+btnTaiko.addEventListener('mousedown', () => {
+    taikoLongPressed = false;
+    if (taikoPressTimer) clearTimeout(taikoPressTimer);
+    taikoPressTimer = setTimeout(() => {
+        taikoLongPressed = true;
+        taikoConfigModal.classList.add('active');
+    }, 400);
+});
+btnTaiko.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    taikoLongPressed = false;
+    if (taikoPressTimer) clearTimeout(taikoPressTimer);
+    taikoPressTimer = setTimeout(() => {
+        taikoLongPressed = true;
+        taikoConfigModal.classList.add('active');
+    }, 400);
+});
+btnTaiko.addEventListener('mouseup', () => {
+    if (taikoPressTimer) { clearTimeout(taikoPressTimer); taikoPressTimer = null; }
+    if (!taikoLongPressed) toggleTaikoPlayState();
+});
+btnTaiko.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (taikoPressTimer) { clearTimeout(taikoPressTimer); taikoPressTimer = null; }
+    if (!taikoLongPressed) toggleTaikoPlayState();
+});
+
+btnTaikoClose.addEventListener('click', () => taikoConfigModal.classList.remove('active'));
+
+taikoBpmSlider.addEventListener('input', (e) => {
+    taikoBpm = parseInt(e.target.value);
+    taikoBpmVal.textContent = taikoBpm;
+    if (isTaikoPlaying) {
+        startTaiko();
+    }
+});
+
+taikoGainSlider.addEventListener('input', (e) => {
+    taikoBoostGain = parseInt(e.target.value);
+    taikoGainVal.textContent = taikoBoostGain;
+});
+
+document.querySelectorAll('#taikoRhythmOptions .setting-opt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#taikoRhythmOptions .setting-opt-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        taikoRhythmType = btn.dataset.rhythm;
+    });
+});
+
+document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        taikoToneType = btn.dataset.tone;
+    });
+});
+
+// SPAREボタンの1回長押し・短押しハンドリング
+let sparePressTimer = null;
+let spareLongPressed = false;
+
+btnSpare.addEventListener('mousedown', (e) => { startSparePress(); });
+btnSpare.addEventListener('touchstart', (e) => { e.preventDefault(); startSparePress(); });
+
+btnSpare.addEventListener('mouseup', (e) => { endSparePress(); });
+btnSpare.addEventListener('touchend', (e) => { e.preventDefault(); endSparePress(); });
+btnSpare.addEventListener('mouseleave', (e) => { cancelSparePress(); });
+
+function startSparePress() {
+    spareLongPressed = false;
+    if (sparePressTimer) clearTimeout(sparePressTimer);
+    sparePressTimer = setTimeout(() => {
+        spareLongPressed = true;
+        triggerSnapshot();
+    }, 300);
+}
+
+function endSparePress() {
+    if (sparePressTimer) {
+        clearTimeout(sparePressTimer);
+        sparePressTimer = null;
+    }
+    if (!spareLongPressed) {
+        toggleFreezeState();
+    }
+}
+
+function cancelSparePress() {
+    if (sparePressTimer) {
+        clearTimeout(sparePressTimer);
+        sparePressTimer = null;
+    }
+}
+
+function toggleFreezeState() {
+    isFrozen = !isFrozen;
+    if (isFrozen) {
+        btnSpare.classList.add('frozen');
+        spareLine1.textContent = "FREEZE";
+        spareLine2.textContent = "HOLD";
+    } else {
+        btnSpare.classList.remove('frozen');
+        spareLine1.textContent = "FREEZE";
+        spareLine2.textContent = "Snap shot";
+    }
+}
+
+async function triggerSnapshot() {
+    try {
+        if (navigator.vibrate) {
+            navigator.vibrate(50);
+        }
+
+        if (window.html2canvas) {
+            const capturedCanvas = await html2canvas(mainAppContainer, {
+                backgroundColor: '#0b0f19',
+                useCORS: true,
+                scale: 2
+            });
+
+            capturedCanvas.toBlob(async (blob) => {
+                const fileName = `VocalAnalyzer_Snap_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+                const snapshotFile = new File([blob], fileName, { type: 'image/png' });
+
+                if (navigator.canShare && navigator.canShare({ files: [snapshotFile] })) {
+                    try {
+                        await navigator.share({ files: [snapshotFile], title: 'Vocal Analyzer スナップショット' });
+                        return;
+                    } catch (err) {
+                        if (err.name === 'AbortError') return;
+                    }
+                }
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { 
+                    document.body.removeChild(a); 
+                    URL.revokeObjectURL(url); 
+                }, 200);
+            }, 'image/png');
+        }
+
+        spareLine1.textContent = "SAVED!";
+        spareLine2.textContent = "OK!";
+        setTimeout(() => {
+            spareLine1.textContent = "FREEZE";
+            spareLine2.textContent = isFrozen ? "HOLD" : "Snap shot";
+        }, 800);
+    } catch(err) {
+        console.error("Snapshot error:", err);
+    }
+}
+
+btnPrePost.addEventListener('click', () => {
+    if (globalPrePostMode === "PRE") {
+        globalPrePostMode = "POST";
+        btnPrePost.textContent = "POST";
+        btnPrePost.classList.add('post-mode');
+    } else {
+        globalPrePostMode = "PRE";
+        btnPrePost.textContent = "PRE";
+        btnPrePost.classList.remove('post-mode');
+    }
+});
+
+spectrumCard.addEventListener('click', (e) => {
+    if (e.target.closest('.btn-group') || e.target.closest('button')) return;
+    
+    if (selectedMainMode === 'fft' || selectedMainMode === 'comb') {
+        fftConfigModal.classList.add('active');
+    }
+});
+
+btnFftClose.addEventListener('click', () => fftConfigModal.classList.remove('active'));
+
+fftSizeSelect.addEventListener('change', (e) => {
+    currentFFTSize = parseInt(e.target.value);
+    if (analyser) analyser.fftSize = currentFFTSize;
+});
+
+fftSmoothParam.addEventListener('input', (e) => {
+    if (analyser) analyser.smoothingTimeConstant = parseFloat(e.target.value);
+});
+
+fftMaxHzSelect.addEventListener('change', (e) => {
+    maxDisplayHz = parseInt(e.target.value);
+});
+
+function createAlgoButton(item, isSub = false) {
+    const btn = document.createElement('button');
+    btn.className = isSub ? `algo-sub-btn ${item.id === selectedMainMode ? 'selected' : ''}` : `algo-item-btn ${item.id === selectedMainMode ? 'selected' : ''}`;
+    btn.dataset.id = item.id;
+    btn.innerHTML = `
+        <span class="algo-name">${item.name}</span>
+        <span class="algo-desc">${item.desc}</span>
+    `;
+    btn.addEventListener('click', () => {
+        selectMainMode(item.id, item.name);
+    });
+    return btn;
+}
+
+function initSpecModalUI() {
+    specAlgoListContainer.innerHTML = '';
+    SPEC_ALGORITHMS.forEach(cat => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'algo-category-group';
+        
+        const titleEl = document.createElement('div');
+        titleEl.className = 'category-title';
+        titleEl.textContent = cat.category;
+        groupEl.appendChild(titleEl);
+
+        const gridEl = document.createElement('div');
+        gridEl.className = 'algo-grid';
+
+        if (cat.groups) {
+            cat.groups.forEach(g => {
+                const groupContainer = document.createElement('div');
+                groupContainer.className = 'group-container';
+                
+                const groupTitle = document.createElement('span');
+                groupTitle.className = 'group-title';
+                groupTitle.textContent = g.groupTitle;
+                groupContainer.appendChild(groupTitle);
+
+                const subGrid = document.createElement('div');
+                subGrid.className = 'algo-grid-2col';
+                g.items.forEach(item => {
+                    subGrid.appendChild(createAlgoButton(item, true));
+                });
+                groupContainer.appendChild(subGrid);
+
+                gridEl.appendChild(groupContainer);
+            });
+        }
+
+        if (cat.items) {
+            cat.items.forEach(item => {
+                gridEl.appendChild(createAlgoButton(item, false));
+            });
+        }
+
+        groupEl.appendChild(gridEl);
+        specAlgoListContainer.appendChild(groupEl);
+    });
+}
+
+function selectMainMode(id, name) {
+    selectedMainMode = id;
+    currentSpecBadge.textContent = name;
+    
+    document.querySelectorAll('.algo-item-btn, .algo-sub-btn').forEach(btn => {
+        if (btn.dataset.id === id) {
+            btn.classList.add('selected');
+        } else {
+            btn.classList.remove('selected');
+        }
+    });
+
+    if (id !== 'harmonicClarity') {
+        spectrumCard.classList.remove('hnr-pass-flash');
+    }
+
+    if (id === 'fft' || id === 'comb') {
+        spectrumCard.classList.add('clickable-fft');
+        spectrumCard.title = "タップしてFFT詳細設定を開く";
+        if (fftTapHint) fftTapHint.style.display = 'inline';
+    } else {
+        spectrumCard.classList.remove('clickable-fft');
+        spectrumCard.title = "";
+        if (fftTapHint) fftTapHint.style.display = 'none';
+    }
+
+    updateSubControlsUI();
+    specModal.classList.remove('active');
+}
+
+function updateSubControlsUI() {
+    if (selectedMainMode === 'sonogram') {
+        standardModeRow.classList.remove('active');
+        sonoPanel.classList.add('active');
+        sonoPanelTitle.innerHTML = 'SPECTRUM [3. ソノグラム]';
+        sonoBtnGroup.style.display = 'flex';
+        sonoTimeContainer.style.display = 'flex';
+        
+        btnSonoLog.classList.toggle('active', sonoAxisMode === 'log');
+        btnSonoLin.classList.toggle('active', sonoAxisMode === 'linear');
+        btnSonoHarm.classList.toggle('active', sonoAxisMode === 'harmonic');
+        btnSonoTracer.classList.toggle('active', sonoAxisMode === 'tracer');
+    } else if (selectedMainMode === 'formant' || selectedMainMode === 'tiltRichness' || selectedMainMode === 'modulation' || selectedMainMode === 'spreadConc') {
+        standardModeRow.classList.remove('active');
+        sonoPanel.classList.add('active');
+        if (selectedMainMode === 'formant') sonoPanelTitle.innerHTML = 'SPECTRUM [4-1. フォルマント]';
+        else if (selectedMainMode === 'tiltRichness') sonoPanelTitle.innerHTML = 'SPECTRUM [4-2. 倍音・抜け]';
+        else if (selectedMainMode === 'modulation') sonoPanelTitle.innerHTML = 'SPECTRUM [4-3. 揺らぎ・うねり]';
+        else if (selectedMainMode === 'spreadConc') sonoPanelTitle.innerHTML = 'SPECTRUM [4-4. 拡散・収束]';
+
+        sonoBtnGroup.style.display = 'none';
+        sonoTimeContainer.style.display = 'none';
+    } else {
+        standardModeRow.classList.add('active');
+        sonoPanel.classList.remove('active');
+
+        if (selectedMainMode === 'fft') {
+            btnSub1.textContent = "LOG";
+            btnSub2.textContent = "LINEAR";
+            btnSub1.classList.toggle('active', fftSubMode === 'log');
+            btnSub2.classList.toggle('active', fftSubMode === 'linear');
+        } else if (selectedMainMode === 'comb') {
+            btnSub1.textContent = "HZ軸";
+            btnSub2.textContent = "倍音軸";
+            btnSub1.classList.toggle('active', combSubMode === 'hz');
+            btnSub2.classList.toggle('active', combSubMode === 'harmonic');
+        } else {
+            btnSub1.textContent = "VIEW";
+            btnSub2.textContent = "PRO";
+            btnSub1.classList.add('active');
+            btnSub2.classList.remove('active');
+        }
+    }
+}
+
+btnSub1.addEventListener('click', () => {
+    if (selectedMainMode === 'fft') fftSubMode = 'log';
+    else if (selectedMainMode === 'comb') combSubMode = 'hz';
+    updateSubControlsUI();
+});
+
+btnSub2.addEventListener('click', () => {
+    if (selectedMainMode === 'fft') fftSubMode = 'linear';
+    else if (selectedMainMode === 'comb') combSubMode = 'harmonic';
+    updateSubControlsUI();
+});
+
+btnSonoLog.addEventListener('click', () => { sonoAxisMode = 'log'; updateSubControlsUI(); });
+btnSonoLin.addEventListener('click', () => { sonoAxisMode = 'linear'; updateSubControlsUI(); });
+btnSonoHarm.addEventListener('click', () => { sonoAxisMode = 'harmonic'; updateSubControlsUI(); });
+btnSonoTracer.addEventListener('click', () => { sonoAxisMode = 'tracer'; updateSubControlsUI(); });
+
+sonoTimeSlider.addEventListener('input', (e) => {
+    sonoTimeWindowSec = parseFloat(e.target.value);
+    sonoTimeVal.textContent = `${Math.round(sonoTimeWindowSec)}秒`;
+});
+
+btnSpec.addEventListener('click', () => specModal.classList.add('active'));
+btnModalClose.addEventListener('click', () => specModal.classList.remove('active'));
+
+function resizeCanvas() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    
+    const targetWidth = 1200; 
+    const labelAreaHeight = 14;
+    const targetHeight = Math.max(50, canvas.height - labelAreaHeight);
+
+    if (sonogramCanvas.width !== targetWidth || sonogramCanvas.height !== targetHeight) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = sonogramCanvas.width;
+        tempCanvas.height = sonogramCanvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(sonogramCanvas, 0, 0);
+
+        sonogramCanvas.width = targetWidth;
+        sonogramCanvas.height = targetHeight;
+        sonogramCtx.fillStyle = '#000000';
+        sonogramCtx.fillRect(0, 0, targetWidth, targetHeight);
+        sonogramCtx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, targetWidth, targetHeight);
+    }
+}
+window.addEventListener('resize', resizeCanvas);
+setTimeout(resizeCanvas, 100);
+
+function updateSliderProgressPrecise(slider, fillElement) {
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const val = parseFloat(slider.value);
+    const ratio = (val - min) / (max - min);
+    
+    const wrapperHeight = slider.clientHeight;
+    const trackPadding = 12;
+    const effectiveTrackHeight = wrapperHeight - (trackPadding * 2);
+    
+    const fillHeightPx = ratio * effectiveTrackHeight;
+    fillElement.style.height = `${Math.max(0, fillHeightPx)}px`;
+}
+
+const faderPairs = [
+    { slider: threshSlider, fill: fillThresh },
+    { slider: smoothSlider, fill: fillSmooth },
+    { slider: wF0, fill: fillWF0 },
+    { slider: wLowP, fill: fillWLowP },
+    { slider: wHighP, fill: fillWHighP },
+    { slider: wTwang, fill: fillWTwang },
+    { slider: wOther, fill: fillWOther }
+];
+
+faderPairs.forEach(pair => {
+    updateSliderProgressPrecise(pair.slider, pair.fill);
+    pair.slider.addEventListener('input', (e) => {
+        updateSliderProgressPrecise(e.target, pair.fill);
+        if (e.target === threshSlider) {
+            threshVal.textContent = `${Math.round(e.target.value)}dB`;
+        } else if (e.target === smoothSlider) {
+            smoothVal.textContent = `${parseFloat(e.target.value).toFixed(2)}s`;
+        }
+    });
+});
+
+window.addEventListener('resize', () => {
+    faderPairs.forEach(pair => updateSliderProgressPrecise(pair.slider, pair.fill));
+});
+
+wF0.addEventListener('input', (e) => valWF0.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
+wLowP.addEventListener('input', (e) => valWLowP.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
+wHighP.addEventListener('input', (e) => valWHighP.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
+wTwang.addEventListener('input', (e) => valWTwang.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
+wOther.addEventListener('input', (e) => valWOther.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
+
+function setupAudioRouting() {
+    if (!audioCtx || !analyser || !activeSourceNode) return;
+
+    try { activeSourceNode.disconnect(); } catch(e){}
+    if (nrHighpass) { try { nrHighpass.disconnect(); } catch(e){} }
+    if (nrLowpass) { try { nrLowpass.disconnect(); } catch(e){} }
+    if (nrDynamicsNode) { try { nrDynamicsNode.disconnect(); } catch(e){} }
+    if (envCorrectionFilter) { try { envCorrectionFilter.disconnect(); } catch(e){} }
+
+    if (!nrHighpass) {
+        nrHighpass = audioCtx.createBiquadFilter();
+        nrHighpass.type = 'highpass';
+        nrHighpass.frequency.value = 100;
+    }
+
+    if (!nrLowpass) {
+        nrLowpass = audioCtx.createBiquadFilter();
+        nrLowpass.type = 'lowpass';
+        nrLowpass.frequency.value = 8000;
+    }
+
+    if (!nrDynamicsNode) {
+        nrDynamicsNode = audioCtx.createDynamicsCompressor();
+    }
+
+    if (!envCorrectionFilter) {
+        envCorrectionFilter = audioCtx.createBiquadFilter();
+    }
+
+    if (envState === 1) {
+        envCorrectionFilter.type = 'peaking';
+        envCorrectionFilter.frequency.value = 350;
+        envCorrectionFilter.Q.value = 1.0;
+        envCorrectionFilter.gain.value = -3.5;
+    } else if (envState === 2) {
+        envCorrectionFilter.type = 'peaking';
+        envCorrectionFilter.frequency.value = 3200;
+        envCorrectionFilter.Q.value = 1.2;
+        envCorrectionFilter.gain.value = 4.0;
+    } else {
+        envCorrectionFilter.type = 'allpass';
+        envCorrectionFilter.gain.value = 0;
+    }
+
+    let currentNode = activeSourceNode;
+
+    try {
+        if (nrState === 1) {
+            nrDynamicsNode.threshold.value = -24;
+            nrDynamicsNode.knee.value = 30;
+            nrDynamicsNode.ratio.value = 12;
+            currentNode.connect(nrHighpass);
+            nrHighpass.connect(nrDynamicsNode);
+            currentNode = nrDynamicsNode;
+        } else if (nrState === 2) {
+            nrDynamicsNode.threshold.value = -12;
+            nrDynamicsNode.knee.value = 0;
+            nrDynamicsNode.ratio.value = 20;
+            currentNode.connect(nrHighpass);
+            nrHighpass.connect(nrLowpass);
+            nrLowpass.connect(nrDynamicsNode);
+            currentNode = nrDynamicsNode;
+        }
+
+        if (envState !== 0) {
+            currentNode.connect(envCorrectionFilter);
+            currentNode = envCorrectionFilter;
+        }
+
+        currentNode.connect(analyser);
+        if (needsDestination) {
+            currentNode.connect(audioCtx.destination);
+        }
+    } catch (err) {
+        console.error("Audio routing error:", err);
+    }
+}
+
+btnNR.addEventListener('click', () => {
+    nrState = (nrState + 1) % 3;
+    btnNR.classList.remove('mode-on', 'mode-on2');
+
+    if (nrState === 0) {
+        btnNR.textContent = "NR:OFF";
+    } else if (nrState === 1) {
+        btnNR.textContent = "NR:ON";
+        btnNR.classList.add('mode-on');
+    } else if (nrState === 2) {
+        btnNR.textContent = "NR:ON2";
+        btnNR.classList.add('mode-on2');
+    }
+    setupAudioRouting();
+});
+
+btnEnv.addEventListener('click', () => {
+    envState = (envState + 1) % 3;
+    btnEnv.classList.remove('mode-ind', 'mode-out');
+
+    if (envState === 0) {
+        btnEnv.textContent = "ENV:OFF";
+    } else if (envState === 1) {
+        btnEnv.textContent = "ENV:IND";
+        btnEnv.classList.add('mode-ind');
+    } else if (envState === 2) {
+        btnEnv.textContent = "ENV:OUT";
+        btnEnv.classList.add('mode-out');
+    }
+    setupAudioRouting();
+});
+
+function hzToNote(hz) {
+    if (hz < 30) return '--';
+    const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const midi = Math.round(69 + 12 * Math.log2(hz / 440));
+    return `${notes[midi % 12]}${Math.floor(midi / 12) - 1}`;
+}
+
+function formatTime(seconds) {
+    if (isNaN(seconds)) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function masterReset() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        try { mediaRecorder.stop(); } catch(e){}
+    }
+    mediaRecorder = null;
+    recordedChunks = [];
+
+    if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+        micStream = null;
+    }
+
+    if (testOscillator) {
+        try { testOscillator.stop(); testOscillator.disconnect(); } catch(e){}
+        testOscillator = null;
+    }
+    if (testGain) {
+        try { testGain.disconnect(); } catch(e){}
+        testGain = null;
+    }
+    if (mockTimer) {
+        clearInterval(mockTimer);
+        mockTimer = null;
+    }
+
+    if (audioElement) {
+        try {
+            audioElement.pause();
+            audioElement.currentTime = 0;
+            audioElement.src = "";
+            audioElement.remove();
+        } catch(e){}
+        audioElement = null;
+    }
+    if (audioElementSource) {
+        try { audioElementSource.disconnect(); } catch(e){}
+        audioElementSource = null;
+    }
+
+    if (nrHighpass) { try { nrHighpass.disconnect(); } catch(e){} nrHighpass = null; }
+    if (nrLowpass) { try { nrLowpass.disconnect(); } catch(e){} nrLowpass = null; }
+    if (nrDynamicsNode) { try { nrDynamicsNode.disconnect(); } catch(e){} nrDynamicsNode = null; }
+    if (envCorrectionFilter) { try { envCorrectionFilter.disconnect(); } catch(e){} envCorrectionFilter = null; }
+
+    if (audioCtx && audioCtx.state !== 'closed') {
+        try { audioCtx.close(); } catch(e){}
+        audioCtx = null;
+    }
+
+    currentMode = "IDLE";
+    activeSourceNode = null;
+
+    btnStart.textContent = "START";
+    btnStart.style.backgroundColor = "var(--f0-color)";
+
+    btnTest.textContent = "TEST";
+    btnTest.style.backgroundColor = "var(--low-phar-color)";
+
+    btnRec.classList.remove('recording');
+    recBtnText.textContent = "REC";
+
+    statusText.textContent = "待機中";
+    updateStatusSubWindow();
+    updateBgmGainValue(); // マイク終了時にBGM音量を通常状態に戻す
+    spectrumCard.classList.remove('hnr-pass-flash');
+}
+
+async function toggleMicMode() {
+    if (currentMode === "MIC") {
+        masterReset();
+        return;
+    }
+
+    masterReset();
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = currentFFTSize;
+        analyser.smoothingTimeConstant = parseFloat(fftSmoothParam.value);
+
+        const micConstraints = {
+            audio: {
+                autoGainControl: true,    
+                echoCancellation: false,  
+                noiseSuppression: false   
+            },
+            video: false
+        };
+
+        micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
+        activeSourceNode = audioCtx.createMediaStreamSource(micStream);
+        needsDestination = false;
+        setupAudioRouting();
+
+        currentMode = "MIC";
+        btnStart.textContent = "STOP";
+        btnStart.style.backgroundColor = "#ef4444";
+        statusText.textContent = "マイク解析中";
+        
+        updateStatusSubWindow();
+        updateBgmGainValue(); // マイクON時にBGM音量をダッキング補正
+
+        if (!window._loopRunning) loop();
+    } catch (err) {
+        console.error("Mic access error:", err);
+        alert("マイクへのアクセスが拒否されたか、利用できません。");
+        masterReset();
+    }
+}
+
+async function toggleTestMode() {
+    if (currentMode === "TEST") {
+        masterReset();
+        return;
+    }
+
+    masterReset();
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = currentFFTSize;
+        analyser.smoothingTimeConstant = parseFloat(fftSmoothParam.value);
+
+        testOscillator = audioCtx.createOscillator();
+        testGain = audioCtx.createGain();
+        testOscillator.type = 'sawtooth';
+        testOscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = 1500;
+        filter.Q.value = 6;
+        filter.gain.value = 25;
+
+        testOscillator.connect(filter);
+        filter.connect(testGain);
+        
+        activeSourceNode = testGain;
+        needsDestination = true;
+        setupAudioRouting();
+
+        testGain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        testOscillator.start();
+
+        let t = 0;
+        mockTimer = setInterval(() => {
+            t += 0.04;
+            if (testOscillator && audioCtx) {
+                testOscillator.frequency.value = 120 + Math.abs(Math.sin(t)) * 280;
+                filter.frequency.value = 300 + Math.pow(Math.sin(t * 0.8), 2) * 7200;
+            }
+        }, 50);
+
+        currentMode = "TEST";
+        btnTest.textContent = "STOP(T)";
+        statusText.textContent = "テスト音源再生中";
+        updateStatusSubWindow();
+        updateBgmGainValue();
+
+        if (!window._loopRunning) loop();
+    } catch (err) {
+        console.error("Test sound error:", err);
+        masterReset();
+    }
+}
+
+async function toggleRecordMode() {
+    if (currentMode === "REC") {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+        return;
+    }
+
+    masterReset();
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = currentFFTSize;
+        analyser.smoothingTimeConstant = parseFloat(fftSmoothParam.value);
+
+        const recConstraints = {
+            audio: {
+                autoGainControl: true,
+                echoCancellation: false,
+                noiseSuppression: false
+            },
+            video: false
+        };
+
+        micStream = await navigator.mediaDevices.getUserMedia(recConstraints);
+        activeSourceNode = audioCtx.createMediaStreamSource(micStream);
+        needsDestination = false;
+        setupAudioRouting();
+
+        currentMode = "REC";
+        btnRec.classList.add('recording');
+        recBtnText.textContent = "STOP";
+        statusText.textContent = "録音・解析中";
+        updateStatusSubWindow();
+        updateBgmGainValue(); // 録音（マイク）ON時にBGM音量をダッキング補正
+
+        if (!window._loopRunning) loop();
+
+        recordedChunks = [];
+        const preferredTypes = ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
+        let selectedMimeType = '';
+        for (const type of preferredTypes) {
+            if (MediaRecorder.isTypeSupported(type)) {
+                selectedMimeType = type;
+                break;
+            }
+        }
+
+        const options = selectedMimeType ? { mimeType: selectedMimeType } : {};
+        mediaRecorder = new MediaRecorder(micStream, options);
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            const finalMime = mediaRecorder.mimeType || selectedMimeType || 'audio/webm';
+            latestRecordedBlob = new Blob(recordedChunks, { type: finalMime });
+
+            if (latestRecordedBlobUrl) URL.revokeObjectURL(latestRecordedBlobUrl);
+            latestRecordedBlobUrl = URL.createObjectURL(latestRecordedBlob);
+
+            const ext = (finalMime.includes('mp4') || finalMime.includes('aac')) ? 'm4a' : 'webm';
+            const fileName = `VocalRec_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.${ext}`;
+
+            fileNameDisplay.textContent = fileName;
+            btnFilePlay.disabled = false;
+            seekSlider.disabled = false;
+            lastFileObjectURL = latestRecordedBlobUrl;
+
+            const recFile = new File([latestRecordedBlob], fileName, { type: finalMime });
+            startFileMode(recFile);
+        };
+
+        mediaRecorder.start(250);
+    } catch (err) {
+        console.error("Recording error:", err);
+        alert("録音の開始に失敗しました。マイク権限をご確認ください。");
+        masterReset();
+    }
+}
+
+async function startFileMode(file) {
+    masterReset();
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = currentFFTSize;
+        analyser.smoothingTimeConstant = parseFloat(fftSmoothParam.value);
+
+        audioElement = document.createElement('audio');
+        audioElement.preload = 'auto';
+        audioElement.playsInline = true;
+        audioElement.crossOrigin = "anonymous";
+        audioElement.loop = repeatToggle.checked;
+
+        if (lastFileObjectURL && lastFileObjectURL !== latestRecordedBlobUrl) {
+            URL.revokeObjectURL(lastFileObjectURL);
+        }
+        lastFileObjectURL = URL.createObjectURL(file);
+        audioElement.src = lastFileObjectURL;
+
+        fileNameDisplay.textContent = file.name;
+        btnFilePlay.disabled = false;
+        seekSlider.disabled = false;
+
+        audioElementSource = audioCtx.createMediaElementSource(audioElement);
+        activeSourceNode = audioElementSource;
+        needsDestination = true;
+        setupAudioRouting();
+
+        audioElement.addEventListener('timeupdate', () => {
+            if (isSeeking || !audioElement.duration) return;
+            const percent = (audioElement.currentTime / audioElement.duration) * 100;
+            seekSlider.value = percent;
+            fileTimeDisplay.textContent = `${formatTime(audioElement.currentTime)} / ${formatTime(audioElement.duration)}`;
+        });
+
+        audioElement.addEventListener('ended', () => {
+            if (!repeatToggle.checked) btnFilePlay.textContent = "再生";
+        });
+
+        await audioElement.play();
+        btnFilePlay.textContent = "一時停止";
+
+        currentMode = "FILE";
+        statusText.textContent = "ファイル再生解析中";
+        updateStatusSubWindow();
+        updateBgmGainValue();
+
+        if (!window._loopRunning) loop();
+    } catch (err) {
+        console.error("Audio file load failed:", err);
+        alert("音声ファイルの読み込みに失敗しました。");
+        masterReset();
+    }
+}
+
+btnStart.addEventListener('click', toggleMicMode);
+btnTest.addEventListener('click', toggleTestMode);
+btnRec.addEventListener('click', toggleRecordMode);
+
+repeatToggle.addEventListener('change', () => {
+    if (audioElement) audioElement.loop = repeatToggle.checked;
+});
+
+btnFilePlay.addEventListener('click', async () => {
+    if (currentMode !== "FILE" || !audioElement) return;
+    if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+    if (audioElement.paused) {
+        await audioElement.play();
+        btnFilePlay.textContent = "一時停止";
+    } else {
+        audioElement.pause();
+        btnFilePlay.textContent = "再生";
+    }
+});
+
+seekSlider.addEventListener('input', (e) => {
+    isSeeking = true;
+    if (!audioElement || !audioElement.duration) return;
+    const seekTime = (e.target.value / 100) * audioElement.duration;
+    fileTimeDisplay.textContent = `${formatTime(seekTime)} / ${formatTime(audioElement.duration)}`;
+});
+
+seekSlider.addEventListener('change', (e) => {
+    if (currentMode !== "FILE" || !audioElement || !audioElement.duration) return;
+    audioElement.currentTime = (e.target.value / 100) * audioElement.duration;
+    isSeeking = false;
+});
+
+btnFileSave.addEventListener('click', async () => {
+    let targetBlob = latestRecordedBlob;
+    if (!targetBlob && lastFileObjectURL) {
+        try {
+            const res = await fetch(lastFileObjectURL);
+            targetBlob = await res.blob();
+        } catch(e) {}
+    }
+
+    if (!targetBlob || targetBlob.size === 0) {
+        alert("保存する音声データがありません。録音またはファイルを開いてください。");
+        return;
+    }
+
+    const mime = targetBlob.type || 'audio/webm';
+    const extension = (mime.includes('mp4') || mime.includes('aac')) ? 'm4a' : 'webm';
+    const fileName = `VocalRec_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.${extension}`;
+    const downloadFile = new File([targetBlob], fileName, { type: mime });
+
+    if (navigator.canShare && navigator.canShare({ files: [downloadFile] })) {
+        try {
+            await navigator.share({ files: [downloadFile], title: '録音データ保存' });
+            return;
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+        }
+    }
+
+    const url = URL.createObjectURL(targetBlob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+});
+
+btnFileOpen.addEventListener('click', () => {
+    audioFileInput.value = "";
+    audioFileInput.click();
+});
+
+audioFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) startFileMode(file);
+});
+
+/* アイドル時の伴奏ステータス監視用ループ（マイクOFF時でもバッジを連動させるため） */
+function startIdleStatusMonitor() {
+    if (window._loopRunning) return;
+    function idleLoop() {
+        if (currentMode !== "IDLE" || isBgmPlaying || isTaikoPlaying) {
+            updateStatusSubWindow();
+            if (currentMode !== "IDLE") {
+                window._loopRunning = false;
+                return;
+            }
+        }
+        if (!isBgmPlaying && !isTaikoPlaying && currentMode === "IDLE") {
+            updateStatusSubWindow();
+            window._loopRunning = false;
+            return;
+        }
+        requestAnimationFrame(idleLoop);
+    }
+    window._loopRunning = true;
+    idleLoop();
+}
+
+function loop() {
+    if (currentMode === "IDLE" && !isBgmPlaying && !isTaikoPlaying) {
+        window._loopRunning = false;
+        updateStatusSubWindow();
+        return;
+    }
+    window._loopRunning = true;
+    requestAnimationFrame(loop);
+    updateStatusSubWindow();
+
+    if (!analyser) return;
+
+    if (isFrozen) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const rawDataArray = new Float32Array(bufferLength);
+    analyser.getFloatFrequencyData(rawDataArray);
+
+    const sampleRate = audioCtx ? audioCtx.sampleRate : 44100;
+    const binHz = (sampleRate / 2) / bufferLength;
+    const threshold = parseFloat(threshSlider.value) + parseFloat(fftPeakSens.value);
+    const smoothTimeSec = parseFloat(smoothSlider.value);
+
+    const dt = 1.0 / 60.0;
+    const alpha = smoothTimeSec <= 0.0001 ? 1.0 : Math.max(0.02, Math.min(1.0, dt / (smoothTimeSec + dt)));
+
+    const weightF0 = parseFloat(wF0.value);
+    const weightLowP = parseFloat(wLowP.value);
+    const weightHighP = parseFloat(wHighP.value);
+    const weightTwang = parseFloat(wTwang.value);
+    const weightOther = parseFloat(wOther.value);
+
+    const processedDataArray = new Float32Array(bufferLength);
+
+    let pF0 = 0, pLowP = 0, pHighP = 0, pTwang = 0, pOther = 0;
+    let pOral = 0, pThroat = 0;
+
+    let maxDb = -999;
+    let maxHz = 0;
+    let f0HzVal = 0, f0DbVal = -999;
+    let foundF0Candidate = false;
+
+    let totalHarmonicPower = 0;
+    let totalNoisePower = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        const rawDb = rawDataArray[i];
+
+        let power = Math.pow(10, rawDb / 10);
+        let bandWeight = 1.0;
+
+        if (hz <= 600) bandWeight = weightF0;
+        else if (hz <= 1500) bandWeight = weightLowP;
+        else if (hz <= 2500) bandWeight = weightHighP;
+        else if (hz <= 6000) bandWeight = weightTwang;
+        else bandWeight = weightOther;
+
+        let effectiveDb = rawDb;
+        if (globalPrePostMode === "POST") {
+            let adjustedPower = power * bandWeight;
+            effectiveDb = adjustedPower > 1e-12 ? 10 * Math.log10(adjustedPower) : -120;
+        }
+        processedDataArray[i] = effectiveDb;
+
+        let calcPower = power;
+        if (hz >= 100 && hz <= 8000) {
+            if (hz <= 600) {
+                calcPower *= weightF0;
+                pF0 += calcPower;
+                if (!foundF0Candidate && rawDb > threshold && i > 0 && i < bufferLength - 1) {
+                    if (rawDb > rawDataArray[i-1] && rawDb >= rawDataArray[i+1]) {
+                        f0DbVal = rawDb;
+                        f0HzVal = hz;
+                        foundF0Candidate = true;
+                    }
+                }
+            } else if (hz <= 1500) {
+                calcPower *= weightLowP;
+                pLowP += calcPower;
+            } else if (hz <= 2500) {
+                calcPower *= weightHighP;
+                pHighP += calcPower;
+            } else if (hz <= 6000) {
+                calcPower *= weightTwang;
+                pTwang += calcPower;
+            } else {
+                calcPower *= weightOther;
+                pOther += calcPower;
+            }
+
+            if (hz >= 3200 && hz <= 3800) pOral += calcPower;
+            if (hz >= 3900) pThroat += calcPower;
+        }
+
+        if (hz > 600 && hz <= maxDisplayHz && effectiveDb > maxDb) {
+            maxDb = effectiveDb;
+            maxHz = hz;
+        }
+    }
+
+    if (!foundF0Candidate) {
+        let maxF0Db = -999;
+        for (let i = 0; i < bufferLength; i++) {
+            const hz = i * binHz;
+            if (hz >= 100 && hz <= 600) {
+                const db = rawDataArray[i];
+                if (db > maxF0Db) {
+                    maxF0Db = db;
+                    f0DbVal = db;
+                    f0HzVal = hz;
+                }
+            }
+        }
+    }
+
+    f0HzValGlobal = (f0DbVal > threshold && f0HzVal > 0) ? f0HzVal : 0;
+    maxHzGlobal = (maxDb > threshold && maxHz > 0) ? maxHz : 0;
+
+    if (f0HzValGlobal > 0) {
+        pitchHistoryBuffer.push({ time: performance.now(), f0: f0HzValGlobal });
+        if (pitchHistoryBuffer.length > 60) pitchHistoryBuffer.shift();
+    }
+
+    if (f0HzValGlobal >= 80) {
+        for (let n = 1; n <= 12; n++) {
+            const targetHz = f0HzValGlobal * n;
+            const binIdx = Math.round(targetHz / binHz);
+            if (binIdx >= 0 && binIdx < bufferLength && processedDataArray[binIdx] > threshold) {
+                const hDb = processedDataArray[binIdx];
+                let noiseSum = 0;
+                let count = 0;
+                for (let off = -2; off <= 2; off++) {
+                    if (off === 0) continue;
+                    const nBin = binIdx + off;
+                    if (nBin >= 0 && nBin < bufferLength) {
+                        noiseSum += Math.pow(10, processedDataArray[nBin] / 10);
+                        count++;
+                    }
+                }
+                const hPow = Math.pow(10, hDb / 10);
+                const nPow = count > 0 ? noiseSum / count : 1e-6;
+                totalHarmonicPower += hPow;
+                totalNoisePower += nPow;
+            }
+        }
+    }
+    const currentOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 
+        ? Math.round((totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100) 
+        : 0;
+
+    if (selectedMainMode === 'harmonicClarity') {
+        if (currentOverallHnr >= 85 && f0HzValGlobal > 0) {
+            spectrumCard.classList.add('hnr-pass-flash');
+        } else {
+            spectrumCard.classList.remove('hnr-pass-flash');
+        }
+    } else {
+        spectrumCard.classList.remove('hnr-pass-flash');
+    }
+
+    if (f0DbVal > threshold) {
+        f0Hz.innerHTML = `${Math.round(f0HzVal)}<span style="font-size:0.5rem">Hz</span>`;
+        f0Db.innerHTML = `${Math.round(f0DbVal)}<span style="font-size:0.5rem">dB</span>`;
+        noteName.textContent = hzToNote(f0HzVal);
+    } else {
+        f0Hz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
+        f0Db.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
+        noteName.textContent = '--';
+    }
+
+    if (maxDb > threshold) {
+        harmHz.innerHTML = `${Math.round(maxHz)}<span style="font-size:0.5rem">Hz</span>`;
+        harmDb.innerHTML = `${Math.round(maxDb)}<span style="font-size:0.5rem">dB</span>`;
+    } else {
+        harmHz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
+        harmDb.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
+    }
+
+    const sumOralThroat = pOral + pThroat;
+    let targetPctOral = 50, targetPctThroat = 50;
+    if (sumOralThroat > 0) {
+        targetPctOral = Math.round((pOral / sumOralThroat) * 100);
+        targetPctThroat = 100 - targetPctOral;
+    }
+    displayPctOral = displayPctOral * (1 - alpha) + targetPctOral * alpha;
+    displayPctThroat = displayPctThroat * (1 - alpha) + targetPctThroat * alpha;
+
+    const roundOral = Math.round(displayPctOral);
+    const roundThroat = 100 - roundOral;
+
+    barOral.style.width = `${roundOral}%`;
+    barOral.textContent = `口 ${roundOral}%`;
+    barThroat.style.width = `${roundThroat}%`;
+    barThroat.textContent = `喉 ${roundThroat}%`;
+
+    const rawDbOral = 10 * Math.log10(pOral || 1e-10);
+    const rawDbThroat = 10 * Math.log10(pThroat || 1e-10);
+    displayDbOral = displayDbOral * (1 - alpha) + rawDbOral * alpha;
+    displayDbThroat = displayDbThroat * (1 - alpha) + rawDbThroat * alpha;
+
+    oralDbText.textContent = `${Math.round(displayDbOral)}dB`;
+    throatDbText.textContent = `${Math.round(displayDbThroat)}dB`;
+
+    const totalPower = pF0 + pLowP + pHighP + pTwang + pOther;
+    let targetRatios = [20, 20, 20, 20, 20];
+    if (totalPower > 0) {
+        const rF0 = Math.round((pF0 / totalPower) * 100);
+        const rLowP = Math.round((pLowP / totalPower) * 100);
+        const rHighP = Math.round((pHighP / totalPower) * 100);
+        const rTwang = Math.round((pTwang / totalPower) * 100);
+        const rOther = Math.max(0, 100 - (rF0 + rLowP + rHighP + rTwang));
+        targetRatios = [rF0, rLowP, rHighP, rTwang, rOther];
+    }
+    for (let k = 0; k < 5; k++) {
+        displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
+    }
+    const [srF0, srLowP, srHighP, srTwang, srOther] = displayRatios.map(v => Math.round(v));
+
+    segF0.style.width = `${srF0}%`; segF0.textContent = srF0 > 5 ? `${srF0}%` : '';
+    segLowP.style.width = `${srLowP}%`; segLowP.textContent = srLowP > 5 ? `${srLowP}%` : '';
+    segHighP.style.width = `${srHighP}%`; segHighP.textContent = srHighP > 5 ? `${srHighP}%` : '';
+    segTwang.style.width = `${srTwang}%`; segTwang.textContent = srTwang > 5 ? `${srTwang}%` : '';
+    segOther.style.width = `${srOther}%`; segOther.textContent = srOther > 5 ? `${srOther}%` : '';
+
+    const delta = Math.round(maxDb - f0DbVal);
+    deltaText.textContent = (isNaN(delta) || f0DbVal <= threshold) ? '-- dB' : `${delta > 0 ? '+' : ''}${delta}dB`;
+
+    let rawStatus = "通常発声";
+    let rawColor = "#ffffff";
+
+    if (maxDb > threshold) {
+        if (maxHz >= 1500 && maxHz <= 2500) {
+            rawStatus = "高音ファリンジャル共鳴";
+            rawColor = COLOR_HIGH_P;
+        } else if (maxHz >= 600 && maxHz < 1500) {
+            rawStatus = "低音ファリンジャル共鳴";
+            rawColor = COLOR_LOW_P;
+        } else if (maxHz > 2500) {
+            rawStatus = "喉トワング強調";
+            rawColor = COLOR_TWANG;
+        }
+    }
+
+    if (rawStatus === currentStableStatus) {
+        statusFrameCount = 0;
+    } else {
+        statusFrameCount++;
+        if (statusFrameCount >= STATUS_STABLE_FRAMES) {
+            currentStableStatus = rawStatus;
+            currentStableColor = rawColor;
+            statusFrameCount = 0;
+        }
+    }
+
+    if (currentMode !== "IDLE") {
+        statusText.textContent = currentStableStatus;
+        statusText.style.color = currentStableColor;
+    } else {
+        statusText.textContent = "待機中";
+        statusText.style.color = "#ffffff";
+    }
+
+    if (selectedMainMode === 'fft') {
+        if (fftSubMode === 'log') {
+            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+        } else {
+            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+        }
+    } else if (selectedMainMode === 'comb') {
+        if (combSubMode === 'hz') {
+            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+        } else {
+            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+        }
+    } else if (selectedMainMode === 'sonogram') {
+        if (sonoAxisMode === 'tracer') {
+            drawTracerSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold);
+        } else {
+            drawSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, maxHzGlobal);
+        }
+    } else if (selectedMainMode === 'formant') {
+        drawFormantMap(processedDataArray, bufferLength, binHz, threshold);
+    } else if (selectedMainMode === 'tiltRichness') {
+        drawTiltRichnessMap(processedDataArray, bufferLength, binHz, threshold);
+    } else if (selectedMainMode === 'modulation') {
+        drawModulationMap();
+    } else if (selectedMainMode === 'spreadConc') {
+        drawSpreadConcentrationMap(processedDataArray, bufferLength, binHz, threshold);
+    } else if (selectedMainMode === 'harmonicClarity') {
+        drawHarmonicClarityAnalyzer(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, currentOverallHnr);
+    } else if (selectedMainMode === 'energyGravity') {
+        drawEnergyGravityMonitor(processedDataArray, bufferLength, binHz, threshold, {weightF0, weightLowP, weightHighP, weightTwang, weightOther});
+    }
+}
+
+function drawDbAxisGrid(graphHeight, topMargin) {
+    const dbLevels = [0, -40, -80, -120];
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'left';
+    dbLevels.forEach(db => {
+        const h = (Math.max(0, db + 120) / 100) * graphHeight;
+        const y = topMargin + graphHeight - h;
+        
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(25, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(`${db}dB`, 2, y + 3);
+    });
+}
+
+function drawSpectrumLog(dataArray, bufferLength, binHz, threshold, f0HzVal, maxHz) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const minHz = 100, maxHzRange = maxDisplayHz;
+    const logMin = Math.log10(minHz), logMax = Math.log10(maxHzRange);
+    
+    const topMargin = 22;
+    const labelAreaHeight = 12;
+    const graphHeight = canvas.height - topMargin - labelAreaHeight;
+
+    drawDbAxisGrid(graphHeight, topMargin);
+
+    const markers = [100, 300, 600, 1500, 2500, 6000, maxHzRange];
+    ctx.font = '7px sans-serif';
+    markers.forEach(hz => {
+        if (hz > maxHzRange) return;
+        const x = 30 + (((Math.log10(hz) - logMin) / (logMax - logMin)) * (canvas.width - 30));
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'center';
+        ctx.fillText(hz >= 1000 ? (hz/1000)+'k' : hz, x, canvas.height - 1);
+    });
+
+    let prevX = 30;
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        if (hz < minHz || hz > maxHzRange) continue;
+        const db = dataArray[i];
+        const h = (Math.max(0, db + 120) / 100) * graphHeight;
+        const y = topMargin + graphHeight - h;
+        const x = 30 + (((Math.log10(hz) - logMin) / (logMax - logMin)) * (canvas.width - 30));
+        ctx.fillStyle = getBandColor(hz);
+        ctx.fillRect(prevX, y, Math.max(1, x - prevX + 0.5), h);
+        prevX = x;
+    }
+
+    if (f0HzVal >= 100 && f0HzVal <= maxHzRange) {
+        const f0X = 30 + (((Math.log10(f0HzVal) - logMin) / (logMax - logMin)) * (canvas.width - 30));
+        ctx.strokeStyle = COLOR_F0;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(f0X, topMargin); ctx.lineTo(f0X, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = COLOR_F0;
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼F0", f0X, 9);
+    }
+    if (maxHz >= 100 && maxHz <= maxHzRange) {
+        const maxX = 30 + (((Math.log10(maxHz) - logMin) / (logMax - logMin)) * (canvas.width - 30));
+        ctx.strokeStyle = '#eab308';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(maxX, topMargin); ctx.lineTo(maxX, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#eab308';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼Peak", maxX, 9);
+    }
+}
+
+function drawSpectrumLinear(dataArray, bufferLength, binHz, threshold, f0HzVal, maxHz) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const maxHzRange = maxDisplayHz;
+    const topMargin = 22;
+    const labelAreaHeight = 12;
+    const graphHeight = canvas.height - topMargin - labelAreaHeight;
+
+    drawDbAxisGrid(graphHeight, topMargin);
+
+    const markers = [2000, 4000, 6000, maxHzRange];
+    ctx.font = '7px sans-serif';
+    markers.forEach(hz => {
+        if (hz > maxHzRange) return;
+        const x = 30 + ((hz / maxHzRange) * (canvas.width - 30));
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'center';
+        ctx.fillText(hz >= 1000 ? (hz/1000)+'k' : hz, x, canvas.height - 1);
+    });
+
+    let prevX = 30;
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        if (hz > maxHzRange) break;
+        const db = dataArray[i];
+        const h = (Math.max(0, db + 120) / 100) * graphHeight;
+        const y = topMargin + graphHeight - h;
+        const x = 30 + ((hz / maxHzRange) * (canvas.width - 30));
+        ctx.fillStyle = getBandColor(hz);
+        ctx.fillRect(prevX, y, Math.max(1, x - prevX + 0.5), h);
+        prevX = x;
+    }
+
+    if (f0HzVal >= 100 && f0HzVal <= maxHzRange) {
+        const f0X = 30 + ((f0HzVal / maxHzRange) * (canvas.width - 30));
+        ctx.strokeStyle = COLOR_F0;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(f0X, topMargin); ctx.lineTo(f0X, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = COLOR_F0;
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼F0", f0X, 9);
+    }
+
+    if (maxHz <= maxHzRange) {
+        const maxX = 30 + ((maxHz / maxHzRange) * (canvas.width - 30));
+        ctx.strokeStyle = '#eab308';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(maxX, topMargin); ctx.lineTo(maxX, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#eab308';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼Peak", maxX, 9);
+    }
+}
+
+function drawHarmonicCombHz(dataArray, bufferLength, binHz, threshold, f0HzVal, maxHz) {
+    drawSpectrumLog(dataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+    if (f0HzVal >= 80) {
+        const minHz = 100, maxHzRange = maxDisplayHz;
+        const logMin = Math.log10(minHz), logMax = Math.log10(maxHzRange);
+        const topMargin = 22;
+        const graphHeight = canvas.height - topMargin - 12;
+
+        for (let n = 1; n <= 30; n++) {
+            const harmonicHz = f0HzVal * n;
+            if (harmonicHz > maxHzRange) break;
+            const x = 30 + (((Math.log10(harmonicHz) - logMin) / (logMax - logMin)) * (canvas.width - 30));
+            const isF0 = (n === 1);
+            const isMaxHarmonic = Math.abs(harmonicHz - maxHz) < (f0HzVal * 0.4);
+
+            ctx.strokeStyle = isF0 ? COLOR_F0 : (isMaxHarmonic ? '#eab308' : 'rgba(255, 255, 255, 0.2)');
+            ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+
+            if (isF0 || isMaxHarmonic) {
+                const binIdx = Math.round(harmonicHz / binHz);
+                if (binIdx < bufferLength) {
+                    const h = (Math.max(0, dataArray[binIdx] + 120) / 100) * graphHeight;
+                    ctx.fillStyle = '#ef4444';
+                    ctx.beginPath(); ctx.arc(x, Math.max(topMargin + 10, topMargin + graphHeight - h - 8), 3.5, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#fff'; ctx.stroke();
+                }
+            }
+        }
+    }
+}
+
+function drawHarmonicAxis(dataArray, bufferLength, binHz, threshold, f0HzVal, maxHz) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const topMargin = 22;
+    const labelAreaHeight = 12;
+    const graphHeight = canvas.height - topMargin - labelAreaHeight;
+    drawDbAxisGrid(graphHeight, topMargin);
+
+    const maxHarmonics = 24;
+    const effectiveF0 = (f0HzVal >= 60 && f0HzVal <= 600) ? f0HzVal : 150;
+    const availableWidth = canvas.width - 30;
+    const colWidth = availableWidth / maxHarmonics;
+
+    let f0PixelX = 0;
+    let peakPixelX = 0;
+    let hasPeakFound = false;
+
+    for (let n = 1; n <= maxHarmonics; n++) {
+        const targetHz = effectiveF0 * n;
+        const binIdx = Math.round(targetHz / binHz);
+        const db = (binIdx >= 0 && binIdx < bufferLength) ? dataArray[binIdx] : -120;
+        const h = (Math.max(0, db + 120) / 100) * graphHeight;
+        const y = topMargin + graphHeight - h;
+        const x = 30 + ((n - 1) * colWidth);
+        const centerX = x + (colWidth / 2);
+
+        ctx.fillStyle = (n === 1) ? COLOR_F0 : getBandColor(targetHz);
+        ctx.fillRect(x + 2, y, Math.max(2, colWidth - 4), h);
+
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.setLineDash([]);
+
+        const isF0 = (n === 1);
+        const isMaxHarmonic = Math.abs(targetHz - maxHz) < (effectiveF0 * 0.4);
+
+        if (isF0) f0PixelX = centerX;
+        if (isMaxHarmonic && !hasPeakFound) {
+            peakPixelX = centerX;
+            hasPeakFound = true;
+        }
+
+        ctx.fillStyle = isF0 ? COLOR_F0 : (isMaxHarmonic ? '#eab308' : '#94a3b8');
+        ctx.font = (isF0 || isMaxHarmonic) ? 'bold 8px sans-serif' : '7px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${n}n`, centerX, canvas.height - 1);
+
+        if (isF0 || isMaxHarmonic) {
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath(); ctx.arc(centerX, Math.max(topMargin + 10, topMargin + graphHeight - h - 8), 3.5, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.stroke();
+        }
+    }
+
+    if (effectiveF0 >= 60) {
+        ctx.fillStyle = COLOR_F0;
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(f0PixelX, 17); ctx.lineTo(f0PixelX - 4, 11); ctx.lineTo(f0PixelX + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼F0", f0PixelX, 9);
+    }
+    if (hasPeakFound) {
+        ctx.fillStyle = '#eab308';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.beginPath();
+        ctx.moveTo(peakPixelX, 17); ctx.lineTo(peakPixelX - 4, 11); ctx.lineTo(peakPixelX + 4, 11);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText("▼Peak", peakPixelX, 9);
+    }
+}
+
+function getSonogramY(hz, sHeight, f0Val) {
+    if (sonoAxisMode === 'harmonic') {
+        const effectiveF0 = (f0Val >= 60 && f0Val <= 600) ? f0Val : 150;
+        const n = hz / effectiveF0;
+        if (n < 1 || n > 24) return -1;
+        const colHeight = sHeight / 24;
+        return sHeight - (n * colHeight);
+    } else if (sonoAxisMode === 'linear') {
+        const maxHz = maxDisplayHz;
+        if (hz < 0 || hz > maxHz) return -1;
+        return sHeight - ((hz / maxHz) * sHeight);
+    } else {
+        const minHz = 100, maxHz = maxDisplayHz;
+        if (hz < minHz || hz > maxHz) return -1;
+        const logMin = Math.log10(minHz), logMax = Math.log10(maxHz);
+        const logVal = Math.log10(hz);
+        const normY = (logVal - logMin) / (logMax - logMin);
+        return sHeight - (normY * sHeight);
+    }
+}
+
+function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal) {
+    if (!canvas.width || !canvas.height) return;
+
+    const sWidth = sonogramCanvas.width;
+    const sHeight = sonogramCanvas.height;
+    const fpsEstimate = 60;
+    const shiftPx = Math.max(1, sWidth / (sonoTimeWindowSec * fpsEstimate));
+
+    sonogramCtx.drawImage(sonogramCanvas, shiftPx, 0, sWidth - shiftPx, sHeight, 0, 0, sWidth - shiftPx, sHeight);
+    sonogramCtx.fillStyle = '#000000';
+    sonogramCtx.fillRect(sWidth - shiftPx, 0, shiftPx, sHeight);
+
+    const xPos = sWidth - shiftPx;
+    const sliceWidth = Math.ceil(shiftPx);
+
+    if (sonoAxisMode === 'harmonic') {
+        const maxHarmonics = 24;
+        const effectiveF0 = (f0HzVal >= 60 && f0HzVal <= 600) ? f0HzVal : 150;
+        const colHeight = sHeight / maxHarmonics;
+
+        for (let n = 1; n <= maxHarmonics; n++) {
+            const targetHz = effectiveF0 * n;
+            const binIdx = Math.round(targetHz / binHz);
+            const db = (binIdx >= 0 && binIdx < bufferLength) ? dataArray[binIdx] : -120;
+            const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
+            
+            if (intensity > 0.05) {
+                const hue = (1.0 - intensity) * 240;
+                sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                const y = sHeight - (n * colHeight);
+                sonogramCtx.fillRect(xPos, y, sliceWidth, colHeight);
+            }
+        }
+    } else if (sonoAxisMode === 'linear') {
+        const maxHz = maxDisplayHz;
+        for (let i = 0; i < bufferLength; i++) {
+            const hz = i * binHz;
+            if (hz > maxHz) break;
+            const db = dataArray[i];
+            const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
+
+            if (intensity > 0.05) {
+                const normY = hz / maxHz;
+                const y = sHeight - (normY * sHeight);
+                const hue = (1.0 - intensity) * 240;
+                sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                sonogramCtx.fillRect(xPos, y - 1, sliceWidth, 2);
+            }
+        }
+    } else {
+        const minHz = 100, maxHz = maxDisplayHz;
+        const logMin = Math.log10(minHz), logMax = Math.log10(maxHz);
+
+        for (let i = 0; i < bufferLength; i++) {
+            const hz = i * binHz;
+            if (hz < minHz || hz > maxHz) continue;
+            const db = dataArray[i];
+            const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
+
+            if (intensity > 0.05) {
+                const logVal = Math.log10(hz);
+                const normY = (logVal - logMin) / (logMax - logMin);
+                const y = sHeight - (normY * sHeight);
+                
+                const hue = (1.0 - intensity) * 240;
+                sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                sonogramCtx.fillRect(xPos, y - 1, sliceWidth, 2);
+            }
+        }
+    }
+
+    const dotCenterX = xPos + (sliceWidth / 2);
+
+    if (f0HzVal > 0) {
+        const yF0 = getSonogramY(f0HzVal, sHeight, f0HzVal);
+        if (yF0 >= 0 && yF0 <= sHeight) {
+            sonogramCtx.fillStyle = '#000000';
+            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#38bdf8';
+            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
+        }
+    }
+
+    if (maxHzVal > 0) {
+        const yMax = getSonogramY(maxHzVal, sHeight, f0HzVal);
+        if (yMax >= 0 && yMax <= sHeight) {
+            sonogramCtx.fillStyle = '#000000';
+            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#ff3344';
+            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
+        }
+    }
+
+    const labelAreaHeight = 14;
+    const graphHeight = canvas.height - labelAreaHeight;
+    const leftMargin = 38;
+    const rightMargin = 38;
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(sonogramCanvas, 0, 0, sWidth, sHeight, leftMargin, 0, graphWidth, graphHeight);
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, leftMargin, graphHeight);
+    ctx.fillRect(canvas.width - rightMargin, 0, rightMargin, graphHeight);
+
+    ctx.font = '7px sans-serif';
+    ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
+
+    if (sonoAxisMode === 'harmonic') {
+        [1, 5, 10, 15, 20, 24].forEach(n => {
+            const y = graphHeight - (n * (graphHeight / 24));
+            ctx.textAlign = 'right'; ctx.fillText(`${n}n`, leftMargin - 4, y + 2.5);
+            ctx.textAlign = 'left'; ctx.fillText(`${n}n`, canvas.width - rightMargin + 4, y + 2.5);
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(canvas.width - rightMargin, y); ctx.stroke();
+        });
+    } else {
+        const markers = [500, 2000, 4000, 6000, maxDisplayHz];
+        markers.forEach(hz => {
+            if (hz > maxDisplayHz) return;
+            let normY = (sonoAxisMode === 'linear') ? (hz / maxDisplayHz) : ((Math.log10(Math.max(100, hz)) - Math.log10(100)) / (Math.log10(maxDisplayHz) - Math.log10(100)));
+            const y = graphHeight - (normY * graphHeight);
+            const labelText = hz >= 1000 ? `${(hz/1000).toFixed(1)} kHz` : `${hz} Hz`;
+            ctx.textAlign = 'right'; ctx.fillText(labelText, leftMargin - 4, y + 2.5);
+            ctx.textAlign = 'left'; ctx.fillText(labelText, canvas.width - rightMargin + 4, y + 2.5);
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(canvas.width - rightMargin, y); ctx.stroke();
+        });
+    }
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, graphHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`ソノグラム [縦軸: ${sonoAxisMode.toUpperCase()} | ${Math.round(sonoTimeWindowSec)}秒幅]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold) {
+    if (!canvas.width || !canvas.height) return;
+
+    const sWidth = sonogramCanvas.width;
+    const sHeight = sonogramCanvas.height;
+    const fpsEstimate = 60;
+    const shiftPx = Math.max(1, sWidth / (sonoTimeWindowSec * fpsEstimate));
+
+    sonogramCtx.drawImage(sonogramCanvas, shiftPx, 0, sWidth - shiftPx, sHeight, 0, 0, sWidth - shiftPx, sHeight);
+    sonogramCtx.fillStyle = '#000000';
+    sonogramCtx.fillRect(sWidth - shiftPx, 0, shiftPx, sHeight);
+
+    const xPos = sWidth - shiftPx;
+    const sliceWidth = Math.ceil(shiftPx);
+
+    if (f0HzVal >= 80) {
+        for (let n = 4; n <= 16; n++) {
+            const targetHz = f0HzVal * n;
+            const binIdx = Math.round(targetHz / binHz);
+            if (binIdx >= 0 && binIdx < bufferLength) {
+                const db = dataArray[binIdx];
+                if (db > threshold) {
+                    const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
+                    const normY = (n - 4) / 12;
+                    const y = sHeight - (normY * sHeight);
+                    const dotCenterX = xPos + (sliceWidth / 2);
+                    const hue = (1.0 - intensity) * 300;
+                    sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    sonogramCtx.beginPath();
+                    sonogramCtx.arc(dotCenterX, y, 2.0 + intensity * 2, 0, Math.PI * 2);
+                    sonogramCtx.fill();
+                }
+            }
+        }
+    }
+
+    const labelAreaHeight = 14;
+    const graphHeight = canvas.height - labelAreaHeight;
+    const leftMargin = 38;
+    const rightMargin = 38;
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(sonogramCanvas, 0, 0, sWidth, sHeight, leftMargin, 0, graphWidth, graphHeight);
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, leftMargin, graphHeight);
+    ctx.fillRect(canvas.width - rightMargin, 0, rightMargin, graphHeight);
+
+    ctx.font = '7px sans-serif';
+    ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
+    [4, 8, 12, 16].forEach(n => {
+        const normY = (n - 4) / 12;
+        const y = graphHeight - (normY * graphHeight);
+        ctx.textAlign = 'right'; ctx.fillText(`${n}n`, leftMargin - 4, y + 2.5);
+        ctx.textAlign = 'left'; ctx.fillText(`${n}n`, canvas.width - rightMargin + 4, y + 2.5);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(canvas.width - rightMargin, y); ctx.stroke();
+    });
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, graphHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#a855f7';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`ソノグラム [トレーサーモード: 高次倍音分離 | ${Math.round(sonoTimeWindowSec)}秒幅]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const labelAreaHeight = 16;
+    const leftMargin = 68;   
+    const rightMargin = 35;  
+    const topMargin = 16;    
+    const bottomMargin = 32; 
+    
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+    const graphHeight = canvas.height - topMargin - bottomMargin;
+
+    const f1Min = 200, f1Max = 900;   
+    const f2Min = 600, f2Max = 2600;  
+
+    const vowelZones = [
+        { label: '/i/', f1: 300, f2: 2300, color: 'rgba(56, 189, 248, 0.32)' },
+        { label: '/u/', f1: 350, f2: 950,  color: 'rgba(10, 185, 129, 0.32)' },
+        { label: '/e/', f1: 550, f2: 1850, color: 'rgba(234, 179, 8, 0.32)' },
+        { label: '/o/', f1: 450, f2: 850,  color: 'rgba(217, 119, 6, 0.32)' },
+        { label: '/a/', f1: 750, f2: 1450, color: 'rgba(244, 63, 94, 0.32)' }
+    ];
+
+    vowelZones.forEach(v => {
+        const vx = leftMargin + ((v.f1 - f1Min) / (f1Max - f1Min)) * graphWidth;
+        const vy = topMargin + graphHeight - ((v.f2 - f2Min) / (f2Max - f2Min)) * graphHeight;
+        
+        ctx.fillStyle = v.color;
+        ctx.beginPath(); ctx.arc(vx, vy, 24, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(v.label, vx, vy + 3);
+    });
+
+    ctx.strokeStyle = 'rgba(168, 85, 247, 0.22)';
+    ctx.lineWidth = 1;
+
+    [300, 450, 600, 750].forEach(f1 => {
+        const x = leftMargin + ((f1 - f1Min) / (f1Max - f1Min)) * graphWidth;
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${f1}`, x, topMargin + graphHeight + 14);
+    });
+
+    [1000, 1500, 2000].forEach(f2 => {
+        const y = topMargin + graphHeight - ((f2 - f2Min) / (f2Max - f2Min)) * graphHeight;
+        ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${f2}`, leftMargin - 10, y + 3);
+    });
+
+    let rawF1 = 0, rawF2 = 0;
+    let maxF1Db = -999, maxF2Db = -999;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        const db = dataArray[i];
+        if (db < threshold) continue;
+
+        if (hz >= f1Min && hz <= f1Max && db > maxF1Db) {
+            maxF1Db = db;
+            rawF1 = hz;
+        }
+        if (hz >= f2Min && hz <= f2Max && db > maxF2Db) {
+            maxF2Db = db;
+            rawF2 = hz;
+        }
+    }
+
+    if (rawF1 > 0 && rawF2 > 0) {
+        smoothedF1 = smoothedF1 * 0.75 + rawF1 * 0.25;
+        smoothedF2 = smoothedF2 * 0.75 + rawF2 * 0.25;
+
+        const plotX = leftMargin + ((smoothedF1 - f1Min) / (f1Max - f1Min)) * graphWidth;
+        const plotY = topMargin + graphHeight - ((smoothedF2 - f2Min) / (f2Max - f2Min)) * graphHeight;
+
+        formantHistory.push({ x: plotX, y: plotY });
+        if (formantHistory.length > 20) formantHistory.shift();
+
+        for (let i = 0; i < formantHistory.length; i++) {
+            const pt = formantHistory[i];
+            const alpha = (i + 1) / formantHistory.length * 0.4;
+            ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+            ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+        }
+
+        ctx.fillStyle = '#000000';
+        ctx.beginPath(); ctx.arc(plotX, plotY, 6.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#a855f7';
+        ctx.beginPath(); ctx.arc(plotX, plotY, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ffffff'; ctx.stroke();
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(` [F1:${Math.round(smoothedF1)}Hz, F2:${Math.round(smoothedF2)}Hz]`, plotX + 9, plotY + 3);
+    } else {
+        if (formantHistory.length > 0) formantHistory.shift();
+    }
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#a855f7';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`4-1. フォルマント [横軸: F1 | 縦軸: F2 | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const labelAreaHeight = 16;
+    const leftMargin = 55;   
+    const rightMargin = 35;  
+    const topMargin = 20;    
+    const bottomMargin = 32; 
+    
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+    const graphHeight = canvas.height - topMargin - bottomMargin;
+
+    const xMin = -35, xMax = 5;
+    const yMin = 0, yMax = 40;
+
+    ctx.fillStyle = 'rgba(234, 179, 8, 0.15)';
+    const goldX = leftMargin + ((-15 - xMin) / (xMax - xMin)) * graphWidth;
+    const goldY = topMargin + graphHeight - ((15 - yMin) / (yMax - yMin)) * graphHeight;
+    ctx.fillRect(goldX, topMargin, leftMargin + graphWidth - goldX, goldY - topMargin);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText("★ 民謡・音頭の理想の抜けゾーン (芯＋高域キレ)", leftMargin + graphWidth - 8, topMargin + 14);
+
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.25)';
+    ctx.lineWidth = 1;
+    [-25, -15, -5].forEach(tilt => {
+        const x = leftMargin + ((tilt - xMin) / (xMax - xMin)) * graphWidth;
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${tilt}dB`, x, topMargin + graphHeight + 14);
+    });
+
+    [10, 20, 30].forEach(rich => {
+        const y = topMargin + graphHeight - ((rich - yMin) / (yMax - yMin)) * graphHeight;
+        ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${rich}%`, leftMargin - 8, y + 3);
+    });
+
+    let lowSumDb = 0, lowCount = 0;
+    let highSumDb = 0, highCount = 0;
+    let totalPower = 0, highPower = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        const db = dataArray[i];
+        if (db < threshold) continue;
+
+        const power = Math.pow(10, db / 10);
+        totalPower += power;
+
+        if (hz >= 100 && hz <= 600) {
+            lowSumDb += db; lowCount++;
+        }
+        if (hz >= 2000 && hz <= 5000) {
+            highSumDb += db; highCount++;
+        }
+        if (hz >= 3000 && hz <= 6000) {
+            highPower += power;
+        }
+    }
+
+    const avgLowDb = lowCount > 0 ? lowSumDb / lowCount : -80;
+    const avgHighDb = highCount > 0 ? highSumDb / highCount : -90;
+    const rawTilt = avgHighDb - avgLowDb;
+    const rawRichness = totalPower > 0 ? (highPower / totalPower) * 100 : 0;
+
+    if (lowCount > 0 && highCount > 0) {
+        smoothedTilt = smoothedTilt * 0.8 + rawTilt * 0.2;
+        smoothedRichness = smoothedRichness * 0.8 + rawRichness * 0.2;
+    }
+
+    const plotX = leftMargin + Math.max(0, Math.min(1, (smoothedTilt - xMin) / (xMax - xMin))) * graphWidth;
+    const plotY = topMargin + graphHeight - Math.max(0, Math.min(1, (smoothedRichness - yMin) / (yMax - yMin))) * graphHeight;
+
+    tiltRichnessHistory.push({ x: plotX, y: plotY });
+    if (tiltRichnessHistory.length > 25) tiltRichnessHistory.shift();
+
+    for (let i = 0; i < tiltRichnessHistory.length; i++) {
+        const pt = tiltRichnessHistory[i];
+        const alpha = (i + 1) / tiltRichnessHistory.length * 0.45;
+        ctx.fillStyle = `rgba(234, 179, 8, ${alpha})`;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.fillStyle = '#000000';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ffffff'; ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(` [傾斜:${Math.round(smoothedTilt)}dB, 高次比:${Math.round(smoothedRichness)}%]`, plotX + 9, plotY + 3);
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#eab308';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`4-2. 倍音・抜け [横軸: スペクトル傾斜 | 縦軸: 高次倍音リッチネス | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawModulationMap() {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const labelAreaHeight = 16;
+    const leftMargin = 55, rightMargin = 35, topMargin = 20, bottomMargin = 32;
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+    const graphHeight = canvas.height - topMargin - bottomMargin;
+
+    const xMin = 0, xMax = 10;   
+    const yMin = 0, yMax = 12;   
+
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+    let gX1 = leftMargin + ((2.5 - xMin) / (xMax - xMin)) * graphWidth;
+    let gX2 = leftMargin + ((7.0 - xMin) / (xMax - xMin)) * graphWidth;
+    let gY1 = topMargin + graphHeight - ((9.0 - yMin) / (yMax - yMin)) * graphHeight;
+    let gY2 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
+    ctx.fillRect(gX1, gY1, gX2 - gX1, gY2 - gY1);
+
+    ctx.fillStyle = 'rgba(10, 185, 129, 0.08)';
+    let sY1 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
+    ctx.fillRect(leftMargin, sY1, graphWidth, topMargin + graphHeight - sY1);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText("★ こぶし・ビブラート適正ゾーン", leftMargin + graphWidth - 8, topMargin + 12);
+    ctx.fillText("■ ストレート音域 (無揺れ)", leftMargin + graphWidth - 8, topMargin + 22);
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    [2, 4, 6, 8].forEach(rate => {
+        const x = leftMargin + ((rate - xMin) / (xMax - xMin)) * graphWidth;
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${rate}Hz`, x, topMargin + graphHeight + 14);
+    });
+
+    [3, 6, 9].forEach(depth => {
+        const y = topMargin + graphHeight - ((depth - yMin) / (yMax - yMin)) * graphHeight;
+        ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${depth}dB`, leftMargin - 8, y + 3);
+    });
+
+    let measuredRate = 0.0;
+    let measuredDepth = 0.0;
+
+    if (pitchHistoryBuffer.length >= 10) {
+        let minF0 = 99999, maxF0 = 0;
+        let sumF0 = 0;
+        let zeroCrossings = 0;
+
+        for (let i = 0; i < pitchHistoryBuffer.length; i++) {
+            const f0 = pitchHistoryBuffer[i].f0;
+            sumF0 += f0;
+            if (f0 < minF0) minF0 = f0;
+            if (f0 > maxF0) maxF0 = f0;
+        }
+        const meanF0 = sumF0 / pitchHistoryBuffer.length;
+
+        const f0Diff = maxF0 - minF0;
+        measuredDepth = Math.min(12.0, (f0Diff / meanF0) * 45.0);
+
+        for (let i = 1; i < pitchHistoryBuffer.length; i++) {
+            if ((pitchHistoryBuffer[i-1].f0 - meanF0) * (pitchHistoryBuffer[i].f0 - meanF0) < 0) {
+                zeroCrossings++;
+            }
+        }
+        const timeSpanSec = (pitchHistoryBuffer[pitchHistoryBuffer.length - 1].time - pitchHistoryBuffer[0].time) * 0.001;
+        if (timeSpanSec > 0.05) {
+            measuredRate = Math.min(10.0, (zeroCrossings / 2.0) / timeSpanSec);
+        }
+    }
+
+    const plotX = leftMargin + Math.max(0, Math.min(1, (measuredRate - xMin) / (xMax - xMin))) * graphWidth;
+    const plotY = topMargin + graphHeight - Math.max(0, Math.min(1, (measuredDepth - yMin) / (yMax - yMin))) * graphHeight;
+
+    modHistory.push({ x: plotX, y: plotY });
+    if (modHistory.length > 25) modHistory.shift();
+
+    for (let i = 0; i < modHistory.length; i++) {
+        const pt = modHistory[i];
+        const alpha = (i + 1) / modHistory.length * 0.45;
+        ctx.fillStyle = `rgba(56, 189, 248, ${alpha})`;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.fillStyle = '#000000';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ffffff'; ctx.stroke();
+
+    ctx.fillStyle = '#eab308';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(` [実測速度:${measuredRate.toFixed(1)}Hz, 深さ:${measuredDepth.toFixed(1)}dB]`, plotX + 9, plotY + 3);
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`4-3. 揺らぎ・うねり [本物のこぶし・ビブラート解析 | 横軸: 速度Hz | 縦軸: 深さdB]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const labelAreaHeight = 16;
+    const leftMargin = 55, rightMargin = 35, topMargin = 20, bottomMargin = 32;
+    const graphWidth = canvas.width - leftMargin - rightMargin;
+    const graphHeight = canvas.height - topMargin - bottomMargin;
+
+    const xMin = 0, xMax = 1.0;
+    const yMin = 0, yMax = 1.0;
+
+    ctx.fillStyle = 'rgba(10, 185, 129, 0.12)';
+    let lX1 = leftMargin;
+    let lX2 = leftMargin + ((0.4 - xMin) / (xMax - xMin)) * graphWidth;
+    let lY1 = topMargin + graphHeight - ((1.0 - yMin) / (yMax - yMin)) * graphHeight;
+    let lY2 = topMargin + graphHeight - ((0.6 - yMin) / (yMax - yMin)) * graphHeight;
+    ctx.fillRect(lX1, lY1, lX2 - lX1, lY2 - lY1);
+
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.10)';
+    let dX1 = leftMargin + ((0.5 - xMin) / (xMax - xMin)) * graphWidth;
+    let dX2 = leftMargin + graphWidth;
+    ctx.fillRect(dX1, topMargin, dX2 - dX1, graphHeight);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText("★ レーザー直進・芯強調ゾーン", leftMargin + graphWidth - 8, topMargin + 12);
+    ctx.fillText("■ 空間拡散・響きゾーン", leftMargin + graphWidth - 8, topMargin + 22);
+
+    ctx.strokeStyle = 'rgba(10, 185, 129, 0.25)';
+    [0.2, 0.4, 0.6, 0.8].forEach(sp => {
+        const x = leftMargin + ((sp - xMin) / (xMax - xMin)) * graphWidth;
+        ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${sp.toFixed(1)}`, x, topMargin + graphHeight + 14);
+    });
+
+    [0.25, 0.5, 0.75].forEach(cn => {
+        const y = topMargin + graphHeight - ((cn - yMin) / (yMax - yMin)) * graphHeight;
+        ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '8px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${cn.toFixed(2)}`, leftMargin - 8, y + 3);
+    });
+
+    let totalP = 0, peakP = 0, weightedVar = 0, centroid = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        const db = dataArray[i];
+        if (db < threshold || hz > 6000) continue;
+        const p = Math.pow(10, db / 10);
+        totalP += p;
+        if (p > peakP) peakP = p;
+        centroid += hz * p;
+    }
+
+    centroid = totalP > 0 ? centroid / totalP : 1000;
+
+    let varianceSum = 0;
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        const db = dataArray[i];
+        if (db < threshold || hz > 6000) continue;
+        const p = Math.pow(10, db / 10);
+        varianceSum += Math.pow(hz - centroid, 2) * p;
+    }
+    const spreadVal = totalP > 0 ? Math.min(1.0, Math.sqrt(varianceSum / totalP) / 2500) : 0.5;
+    const concentrationVal = totalP > 0 ? Math.min(1.0, peakP / (totalP + 1e-6) * 3.5) : 0.5;
+
+    const plotX = leftMargin + Math.max(0, Math.min(1, (spreadVal - xMin) / (xMax - xMin))) * graphWidth;
+    const plotY = topMargin + graphHeight - Math.max(0, Math.min(1, (concentrationVal - yMin) / (yMax - yMin))) * graphHeight;
+
+    spreadConcHistory.push({ x: plotX, y: plotY });
+    if (spreadConcHistory.length > 25) spreadConcHistory.shift();
+
+    for (let i = 0; i < spreadConcHistory.length; i++) {
+        const pt = spreadConcHistory[i];
+        const alpha = (i + 1) / spreadConcHistory.length * 0.45;
+        ctx.fillStyle = `rgba(10, 185, 129, ${alpha})`;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.fillStyle = '#000000';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ffffff'; ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(` [拡散:${spreadVal.toFixed(2)}, 収束:${concentrationVal.toFixed(2)}]`, plotX + 9, plotY + 3);
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#10b981';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`4-4. 音色の拡散・収束 [横軸: 帯域分散度 | 縦軸: エネルギー集中度 | 空間拡散 vs レーザー直進]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawHarmonicClarityAnalyzer(dataArray, bufferLength, binHz, f0Val, threshold, currentOverallHnr) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const topMargin = 32;
+    const labelAreaHeight = 16;
+    const graphHeight = canvas.height - topMargin - labelAreaHeight;
+
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillStyle = '#10b981';
+    ctx.textAlign = 'left';
+    ctx.fillText(`【5. 倍音純度・クリアネス (HNR) [合格基準: 85%以上]】`, 12, 16);
+
+    ctx.font = '900 22px sans-serif';
+    ctx.fillStyle = currentOverallHnr >= 85 ? '#10b981' : (currentOverallHnr >= 70 ? '#eab308' : '#94a3b8');
+    ctx.textAlign = 'right';
+    ctx.fillText(`${currentOverallHnr}%`, canvas.width - 110, 22);
+
+    ctx.font = 'bold 8px sans-serif';
+    ctx.fillStyle = currentOverallHnr >= 85 ? '#34d399' : '#94a3b8';
+    ctx.textAlign = 'right';
+    ctx.fillText(currentOverallHnr >= 85 ? "★ 合格 (PASS 85%)" : "目標域: 70〜84% (要改善<70%)", canvas.width - 12, 20);
+
+    const effectiveF0 = (f0Val >= 60 && f0Val <= 600) ? f0Val : 150;
+    const maxHarmonics = 16;
+    const colWidth = (canvas.width - 50) / maxHarmonics;
+
+    for (let n = 1; n <= maxHarmonics; n++) {
+        const targetHz = effectiveF0 * n;
+        const binIdx = Math.round(targetHz / binHz);
+        
+        let harmonicPeakDb = -120;
+        let neighboringNoiseDb = -120;
+
+        if (binIdx >= 0 && binIdx < bufferLength) {
+            harmonicPeakDb = dataArray[binIdx];
+            let noiseSum = 0;
+            let noiseCount = 0;
+            for (let offset = -3; offset <= 3; offset++) {
+                if (offset === 0) continue;
+                const nBin = binIdx + offset;
+                if (nBin >= 0 && nBin < bufferLength) {
+                    noiseSum += Math.pow(10, dataArray[nBin] / 10);
+                    noiseCount++;
+                }
+            }
+            if (noiseCount > 0) {
+                neighboringNoiseDb = 10 * Math.log10(noiseSum / noiseCount);
+            }
+        }
+
+        const hPower = Math.pow(10, Math.max(0, harmonicPeakDb + 120) / 10);
+        const nPower = Math.pow(10, Math.max(0, neighboringNoiseDb + 120) / 10);
+        const hnrLocal = Math.max(0, Math.min(100, ((hPower / (hPower + nPower + 1e-6)) * 100)));
+
+        const x = 30 + (n - 1) * colWidth;
+        const h = (hnrLocal / 100) * (graphHeight * 0.75);
+        const y = topMargin + graphHeight - h;
+
+        ctx.fillStyle = n === 1 ? COLOR_F0 : (hnrLocal >= 85 ? '#10b981' : '#f43f5e');
+        ctx.fillRect(x + 3, y, colWidth - 6, h);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '7px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${Math.round(hnrLocal)}%`, x + colWidth / 2, y - 4);
+        ctx.fillText(`${n}n`, x + colWidth / 2, canvas.height - labelAreaHeight - 4);
+    }
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#10b981';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`倍音純度・クリアネス (HNR) 解析 [合格基準: 85%以上]`, canvas.width / 2, canvas.height - 1);
+}
+
+function drawEnergyGravityMonitor(dataArray, bufferLength, binHz, threshold, weights) {
+    if (!canvas.width || !canvas.height) return;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const topMargin = 22;
+    const labelAreaHeight = 16;
+    const graphHeight = canvas.height - topMargin - labelAreaHeight;
+
+    let weightedSumFreqPower = 0;
+    let totalPower = 0;
+
+    const minHz = 100, maxHz = 6000;
+    const barsCount = 30;
+    const barWidth = (canvas.width - 60) / barsCount;
+    const binRange = (maxHz - minHz) / barsCount;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const hz = i * binHz;
+        if (hz < minHz || hz > maxHz) continue;
+        const db = dataArray[i];
+        if (db < threshold) continue;
+
+        let power = Math.pow(10, db / 10);
+        weightedSumFreqPower += hz * power;
+        totalPower += power;
+    }
+
+    const spectralCentroid = totalPower > 0 ? weightedSumFreqPower / totalPower : 1000;
+
+    const idealX1 = 30 + ((1500 - minHz) / (maxHz - minHz)) * (canvas.width - 60);
+    const idealX2 = 30 + ((3000 - minHz) / (maxHz - minHz)) * (canvas.width - 60);
+    ctx.fillStyle = 'rgba(234, 179, 8, 0.12)';
+    ctx.fillRect(idealX1, topMargin, idealX2 - idealX1, graphHeight);
+
+    for (let b = 0; b < barsCount; b++) {
+        const startHz = minHz + b * binRange;
+        const endHz = startHz + binRange;
+        
+        let bandPowerSum = 0;
+        let count = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            const hz = i * binHz;
+            if (hz >= startHz && hz < endHz) {
+                bandPowerSum += Math.pow(10, dataArray[i] / 10);
+                count++;
+            }
+        }
+        const avgPower = count > 0 ? bandPowerSum / count : 0;
+        const pseudoDb = avgPower > 0 ? 10 * Math.log10(avgPower) : -120;
+        const h = (Math.max(0, pseudoDb + 120) / 100) * (graphHeight * 0.7);
+        const x = 30 + b * barWidth;
+        const y = topMargin + graphHeight - h;
+
+        ctx.fillStyle = startHz <= spectralCentroid && endHz > spectralCentroid ? '#eab308' : 'rgba(2, 132, 199, 0.6)';
+        ctx.fillRect(x + 1, y, barWidth - 2, h);
+    }
+
+    const centroidNorm = Math.max(0, Math.min(1, (spectralCentroid - minHz) / (maxHz - minHz)));
+    const centroidX = 30 + centroidNorm * (canvas.width - 60);
+
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centroidX, topMargin);
+    ctx.lineTo(centroidX, topMargin + graphHeight);
+    ctx.stroke();
+
+    const hzMarkers = [100, 1000, 2000, 3000, 4000, 5000, 6000];
+    ctx.font = '7px sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    hzMarkers.forEach(hz => {
+        const norm = (hz - minHz) / (maxHz - minHz);
+        const mx = 30 + norm * (canvas.width - 60);
+        ctx.fillText(hz >= 1000 ? `${hz/1000}k` : `${hz}`, mx, topMargin + graphHeight - 2);
+    });
+
+    const hudWidth = 145;
+    const hudHeight = 26;
+    const hudX = canvas.width - hudWidth - 5;
+    const hudY = topMargin + 2;
+
+    ctx.fillStyle = 'rgba(21, 28, 44, 0.9)';
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
+    ctx.strokeRect(hudX, hudY, hudWidth, hudHeight);
+
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillStyle = '#eab308';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(spectralCentroid)} Hz (目標:1.5-3k)`, hudX + (hudWidth / 2), hudY + 18);
+
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
+    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#eab308';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`声の重心・エネルギー密度モニター [理想重心: 1.5kHz〜3.0kHz]`, canvas.width / 2, canvas.height - 1);
+}
+
+function getBandColor(hz) {
+    if (hz <= 600) return COLOR_F0;
+    if (hz <= 1500) return COLOR_LOW_P;
+    if (hz <= 2500) return COLOR_HIGH_P;
+    if (hz <= 6000) return COLOR_TWANG;
+    return COLOR_OTHER;
+}
+
+initSpecModalUI();
+selectMainMode('fft', '1. FFT');
+</script>
+</body>
+</html>
