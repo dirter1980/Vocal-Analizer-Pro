@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Vocal Analyzer Pro v9.0 (Rev1.4)</title>
+    <title>Vocal Analyzer Pro v9.0 (Rev1.5)</title>
     <!-- HTML全体を高画質キャプチャするための外部ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -532,7 +532,7 @@
             white-space: nowrap;
         }
 
-        /* 操作セクション（2列×7行グリッドへ拡張） */
+        /* 操作セクション（2列×7行グリッド） */
         .btn-col {
             justify-content: flex-start;
             padding: 1px 1px;
@@ -700,7 +700,6 @@
             animation: pulse-rec 1s infinite alternate;
         }
 
-        /* 取説ボタンの配色：平滑化フェーダーと同一のシアン系（--smooth-color: #06b6d4） */
         .btn-manual-simple, .btn-manual-detail {
             background-color: var(--smooth-color);
             color: #ffffff;
@@ -1131,7 +1130,7 @@
 
     <!-- コントロールパネル (第6カード / 2×7グリッドへ拡張) -->
     <div class="card-common controls-grid-section">
-        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.4)</div>
+        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.5)</div>
         <div class="seven-cols-container">
             <div class="col-item">
                 <span class="col-label" style="color:var(--text-main)">閾値</span>
@@ -1196,7 +1195,7 @@
                 </div>
                 <span class="slider-val" id="valWOther">1.0x</span>
             </div>
-            <!-- 操作セクション（2列×7行グリッド：最後2個の取説ボタンを追加） -->
+            <!-- 操作セクション（2列×7行グリッド） -->
             <div class="col-item btn-col">
                 <span class="col-label" style="color:#ffffff;">操作</span>
                 <div class="btn-grid-2col">
@@ -1224,7 +1223,6 @@
                     </button>
                     <button class="btn-vertical btn-filesave" id="btnFileSave">SAVE</button>
                     <button class="btn-vertical btn-fileopen" id="btnFileOpen">OPEN</button>
-                    <!-- 新規追加：📖 取説(簡易) / 📖 取説(詳細) （配色：平滑化フェーダー同一シアン系） -->
                     <button class="btn-vertical btn-manual-simple" id="btnManualSimple">
                         <span>📖 取説</span>
                         <span class="sub-txt">(簡易)</span>
@@ -1260,7 +1258,7 @@
     <!-- SPEC 解析レンズ モーダル -->
     <div class="modal-overlay" id="specModal">
         <div class="modal-header">
-            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.4</div>
+            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.5</div>
             <button class="btn-modal-close" id="btnModalClose">閉じる</button>
         </div>
         <div class="modal-content-scroll" id="specAlgoListContainer"></div>
@@ -1540,6 +1538,9 @@ let displayMaxDb = -120;
 let displayDeltaDb = 0;
 let displayHnrScore = 0;
 
+/* Safari 120Hz/高速描画のクシ形ノイズ完全防止用スペクトルキャッシュ配列 */
+let prevSpectrumArray = null;
+
 const fileNameDisplay = document.getElementById('fileNameDisplay');
 const fileTimeDisplay = document.getElementById('fileTimeDisplay');
 const btnFilePlay = document.getElementById('btnFilePlay');
@@ -1665,54 +1666,33 @@ const STATUS_STABLE_DURATION_SEC = 0.18;
 let f0HzValGlobal = 0;
 let maxHzGlobal = 0;
 
-/* Safari WebKit 用の実効 smoothingTimeConstant 同期関数 */
 function applyEffectiveAnalyserSmoothing() {
     if (!analyser) return;
     const baseSmooth = parseFloat(fftSmoothParam.value);
     const userSmoothSec = parseFloat(smoothSlider.value);
-    // Safariの120Hz描画環境でもネイティブFFTバッファが滑らかに減衰するよう結合
     const combined = Math.min(0.97, baseSmooth + (1.0 - baseSmooth) * (userSmoothSec * 0.85));
     analyser.smoothingTimeConstant = combined;
 }
 
-/* --- 取説ボタンのイベントリスナー --- */
-btnManualSimple.addEventListener('click', () => {
-    manualSimpleModal.classList.add('active');
-});
-btnManualSimpleClose.addEventListener('click', () => {
-    manualSimpleModal.classList.remove('active');
-});
+btnManualSimple.addEventListener('click', () => manualSimpleModal.classList.add('active'));
+btnManualSimpleClose.addEventListener('click', () => manualSimpleModal.classList.remove('active'));
 
-btnManualDetail.addEventListener('click', () => {
-    manualDetailModal.classList.add('active');
-});
-btnManualDetailClose.addEventListener('click', () => {
-    manualDetailModal.classList.remove('active');
-});
+btnManualDetail.addEventListener('click', () => manualDetailModal.classList.add('active'));
+btnManualDetailClose.addEventListener('click', () => manualDetailModal.classList.remove('active'));
 
-/* --- ステータス小窓をいつでも即座に更新する共通関数 --- */
 function updateStatusSubWindow() {
     const isAccompanimentActive = isBgmPlaying || isTaikoPlaying;
     if (currentMode === "MIC" || currentMode === "REC") {
-        if (isAccompanimentActive) {
-            statusSubWindow.textContent = "マイク解析中(伴奏中)";
-        } else {
-            statusSubWindow.textContent = "マイク解析中";
-        }
+        statusSubWindow.textContent = isAccompanimentActive ? "マイク解析中(伴奏中)" : "マイク解析中";
     } else if (currentMode === "TEST") {
         statusSubWindow.textContent = "TEST音源";
     } else if (currentMode === "FILE") {
         statusSubWindow.textContent = "ファイル解析";
     } else {
-        if (isAccompanimentActive) {
-            statusSubWindow.textContent = "▶︎伴奏中";
-        } else {
-            statusSubWindow.textContent = "アイドル中";
-        }
+        statusSubWindow.textContent = isAccompanimentActive ? "▶︎伴奏中" : "アイドル中";
     }
 }
 
-/* --- 完全独立系 AudioContext の初期化管理 --- */
 function getIndependentAudioContext() {
     if (!independentAudioCtx || independentAudioCtx.state === 'closed') {
         independentAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1723,7 +1703,6 @@ function getIndependentAudioContext() {
     return independentAudioCtx;
 }
 
-/* --- BGM 機能の実装（マイク連動音量補正対応版：3.5倍） --- */
 function updateBgmGainValue() {
     if (!bgmGainNode) return;
     const baseVol = parseFloat(bgmVolumeSlider.value) / 100;
@@ -1761,18 +1740,12 @@ function startBgm() {
         isBgmPlaying = true;
         bgmStatusText.textContent = "再生中";
         updateStatusSubWindow();
-        if (currentMode === "IDLE" && !window._loopRunning) {
-            startIdleStatusMonitor();
-        }
-    }).catch(err => {
-        console.error("BGM play error:", err);
-    });
+        if (currentMode === "IDLE" && !window._loopRunning) startIdleStatusMonitor();
+    }).catch(err => console.error("BGM play error:", err));
 }
 
 function stopBgm() {
-    if (bgmElement) {
-        bgmElement.pause();
-    }
+    if (bgmElement) bgmElement.pause();
     isBgmPlaying = false;
     bgmStatusText.textContent = "停止中";
     updateStatusSubWindow();
@@ -1784,19 +1757,13 @@ let bgmLongPressed = false;
 btnBgm.addEventListener('mousedown', () => {
     bgmLongPressed = false;
     if (bgmPressTimer) clearTimeout(bgmPressTimer);
-    bgmPressTimer = setTimeout(() => {
-        bgmLongPressed = true;
-        bgmConfigModal.classList.add('active');
-    }, 400);
+    bgmPressTimer = setTimeout(() => { bgmLongPressed = true; bgmConfigModal.classList.add('active'); }, 400);
 });
 btnBgm.addEventListener('touchstart', (e) => {
     e.preventDefault();
     bgmLongPressed = false;
     if (bgmPressTimer) clearTimeout(bgmPressTimer);
-    bgmPressTimer = setTimeout(() => {
-        bgmLongPressed = true;
-        bgmConfigModal.classList.add('active');
-    }, 400);
+    bgmPressTimer = setTimeout(() => { bgmLongPressed = true; bgmConfigModal.classList.add('active'); }, 400);
 });
 btnBgm.addEventListener('mouseup', () => {
     if (bgmPressTimer) { clearTimeout(bgmPressTimer); bgmPressTimer = null; }
@@ -1809,15 +1776,9 @@ btnBgm.addEventListener('touchend', (e) => {
 });
 
 btnBgmClose.addEventListener('click', () => bgmConfigModal.classList.remove('active'));
-
-btnBgmSelectFile.addEventListener('click', () => {
-    bgmFileInput.value = "";
-    bgmFileInput.click();
-});
-
+btnBgmSelectFile.addEventListener('click', () => { bgmFileInput.value = ""; bgmFileInput.click(); });
 bgmVolumeSlider.addEventListener('input', (e) => {
-    const vol = parseFloat(e.target.value);
-    bgmVolumeVal.textContent = Math.round(vol);
+    bgmVolumeVal.textContent = Math.round(parseFloat(e.target.value));
     updateBgmGainValue();
 });
 
@@ -1829,27 +1790,19 @@ bgmFileInput.addEventListener('change', (e) => {
     if (bgmFileObjectUrl) URL.revokeObjectURL(bgmFileObjectUrl);
     bgmFileObjectUrl = URL.createObjectURL(file);
 
-    if (bgmElement) {
-        bgmElement.pause();
-        bgmElement.src = "";
-    }
+    if (bgmElement) { bgmElement.pause(); bgmElement.src = ""; }
     bgmElement = document.createElement('audio');
     bgmElement.preload = 'auto';
     bgmElement.loop = true;
     bgmElement.crossOrigin = "anonymous";
     bgmElement.src = bgmFileObjectUrl;
-
     bgmSourceNode = null;
     startBgm();
 });
 
-/* --- 太鼓（メトロノーム）機能の実装（3.5倍） --- */
 function toggleTaikoPlayState() {
-    if (isTaikoPlaying) {
-        stopTaiko();
-    } else {
-        startTaiko();
-    }
+    if (isTaikoPlaying) stopTaiko();
+    else startTaiko();
 }
 
 function startTaiko() {
@@ -1860,7 +1813,6 @@ function startTaiko() {
     updateStatusSubWindow();
 
     const intervalMs = (60 / taikoBpm) * 1000;
-    
     playTaikoBeatSound(ctxInd);
     
     if (taikoTimerId) clearInterval(taikoTimerId);
@@ -1873,38 +1825,24 @@ function startTaiko() {
 function stopTaiko() {
     isTaikoPlaying = false;
     taikoStatusText.textContent = "停止中";
-    if (taikoTimerId) {
-        clearInterval(taikoTimerId);
-        taikoTimerId = null;
-    }
+    if (taikoTimerId) { clearInterval(taikoTimerId); taikoTimerId = null; }
     updateStatusSubWindow();
 }
 
 function playTaikoBeatSound(ctxInd) {
     if (!isTaikoPlaying) return;
-    
     let playSound = true;
-    if (taikoRhythmType === "standard" && (taikoStep % 4 === 3)) {
-        playSound = false;
-    }
+    if (taikoRhythmType === "standard" && (taikoStep % 4 === 3)) playSound = false;
     taikoStep = (taikoStep + 1) % 4;
-
     if (!playSound) return;
 
     const now = ctxInd.currentTime;
     const osc = ctxInd.createOscillator();
     const gainNode = ctxInd.createGain();
     
-    let baseFreq = 75;
-    let decayTime = 0.35;
-    
-    if (taikoToneType === "low") {
-        baseFreq = 55;
-        decayTime = 0.45;
-    } else if (taikoToneType === "high") {
-        baseFreq = 110;
-        decayTime = 0.25;
-    }
+    let baseFreq = 75, decayTime = 0.35;
+    if (taikoToneType === "low") { baseFreq = 55; decayTime = 0.45; }
+    else if (taikoToneType === "high") { baseFreq = 110; decayTime = 0.25; }
 
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(baseFreq * 2.2, now);
@@ -1917,7 +1855,6 @@ function playTaikoBeatSound(ctxInd) {
     
     osc.connect(gainNode);
     gainNode.connect(ctxInd.destination);
-    
     osc.start(now);
     osc.stop(now + decayTime);
 }
@@ -1928,19 +1865,13 @@ let taikoLongPressed = false;
 btnTaiko.addEventListener('mousedown', () => {
     taikoLongPressed = false;
     if (taikoPressTimer) clearTimeout(taikoPressTimer);
-    taikoPressTimer = setTimeout(() => {
-        taikoLongPressed = true;
-        taikoConfigModal.classList.add('active');
-    }, 400);
+    taikoPressTimer = setTimeout(() => { taikoLongPressed = true; taikoConfigModal.classList.add('active'); }, 400);
 });
 btnTaiko.addEventListener('touchstart', (e) => {
     e.preventDefault();
     taikoLongPressed = false;
     if (taikoPressTimer) clearTimeout(taikoPressTimer);
-    taikoPressTimer = setTimeout(() => {
-        taikoLongPressed = true;
-        taikoConfigModal.classList.add('active');
-    }, 400);
+    taikoPressTimer = setTimeout(() => { taikoLongPressed = true; taikoConfigModal.classList.add('active'); }, 400);
 });
 btnTaiko.addEventListener('mouseup', () => {
     if (taikoPressTimer) { clearTimeout(taikoPressTimer); taikoPressTimer = null; }
@@ -1953,15 +1884,11 @@ btnTaiko.addEventListener('touchend', (e) => {
 });
 
 btnTaikoClose.addEventListener('click', () => taikoConfigModal.classList.remove('active'));
-
 taikoBpmSlider.addEventListener('input', (e) => {
     taikoBpm = parseInt(e.target.value);
     taikoBpmVal.textContent = taikoBpm;
-    if (isTaikoPlaying) {
-        startTaiko();
-    }
+    if (isTaikoPlaying) startTaiko();
 });
-
 taikoGainSlider.addEventListener('input', (e) => {
     taikoBoostGain = parseInt(e.target.value);
     taikoGainVal.textContent = taikoBoostGain;
@@ -1974,7 +1901,6 @@ document.querySelectorAll('#taikoRhythmOptions .setting-opt-btn').forEach(btn =>
         taikoRhythmType = btn.dataset.rhythm;
     });
 });
-
 document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(b => b.classList.remove('active'));
@@ -1983,41 +1909,26 @@ document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(btn => {
     });
 });
 
-// SPAREボタンの1回長押し・短押しハンドリング
 let sparePressTimer = null;
 let spareLongPressed = false;
 
-btnSpare.addEventListener('mousedown', (e) => { startSparePress(); });
+btnSpare.addEventListener('mousedown', () => startSparePress());
 btnSpare.addEventListener('touchstart', (e) => { e.preventDefault(); startSparePress(); });
-
-btnSpare.addEventListener('mouseup', (e) => { endSparePress(); });
+btnSpare.addEventListener('mouseup', () => endSparePress());
 btnSpare.addEventListener('touchend', (e) => { e.preventDefault(); endSparePress(); });
-btnSpare.addEventListener('mouseleave', (e) => { cancelSparePress(); });
+btnSpare.addEventListener('mouseleave', () => cancelSparePress());
 
 function startSparePress() {
     spareLongPressed = false;
     if (sparePressTimer) clearTimeout(sparePressTimer);
-    sparePressTimer = setTimeout(() => {
-        spareLongPressed = true;
-        triggerSnapshot();
-    }, 300);
+    sparePressTimer = setTimeout(() => { spareLongPressed = true; triggerSnapshot(); }, 300);
 }
-
 function endSparePress() {
-    if (sparePressTimer) {
-        clearTimeout(sparePressTimer);
-        sparePressTimer = null;
-    }
-    if (!spareLongPressed) {
-        toggleFreezeState();
-    }
+    if (sparePressTimer) { clearTimeout(sparePressTimer); sparePressTimer = null; }
+    if (!spareLongPressed) toggleFreezeState();
 }
-
 function cancelSparePress() {
-    if (sparePressTimer) {
-        clearTimeout(sparePressTimer);
-        sparePressTimer = null;
-    }
+    if (sparePressTimer) { clearTimeout(sparePressTimer); sparePressTimer = null; }
 }
 
 function toggleFreezeState() {
@@ -2035,53 +1946,29 @@ function toggleFreezeState() {
 
 async function triggerSnapshot() {
     try {
-        if (navigator.vibrate) {
-            navigator.vibrate(50);
-        }
-
+        if (navigator.vibrate) navigator.vibrate(50);
         if (window.html2canvas) {
-            const capturedCanvas = await html2canvas(mainAppContainer, {
-                backgroundColor: '#0b0f19',
-                useCORS: true,
-                scale: 2
-            });
-
+            const capturedCanvas = await html2canvas(mainAppContainer, { backgroundColor: '#0b0f19', useCORS: true, scale: 2 });
             capturedCanvas.toBlob(async (blob) => {
                 const fileName = `VocalAnalyzer_Snap_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
                 const snapshotFile = new File([blob], fileName, { type: 'image/png' });
-
                 if (navigator.canShare && navigator.canShare({ files: [snapshotFile] })) {
-                    try {
-                        await navigator.share({ files: [snapshotFile], title: 'Vocal Analyzer スナップショット' });
-                        return;
-                    } catch (err) {
-                        if (err.name === 'AbortError') return;
-                    }
+                    try { await navigator.share({ files: [snapshotFile], title: 'Vocal Analyzer スナップショット' }); return; } catch (err) { if (err.name === 'AbortError') return; }
                 }
-
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => { 
-                    document.body.removeChild(a); 
-                    URL.revokeObjectURL(url); 
-                }, 200);
+                a.style.display = 'none'; a.href = url; a.download = fileName;
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
             }, 'image/png');
         }
-
         spareLine1.textContent = "SAVED!";
         spareLine2.textContent = "OK!";
         setTimeout(() => {
             spareLine1.textContent = "FREEZE";
             spareLine2.textContent = isFrozen ? "HOLD" : "Snap shot";
         }, 800);
-    } catch(err) {
-        console.error("Snapshot error:", err);
-    }
+    } catch(err) { console.error("Snapshot error:", err); }
 }
 
 btnPrePost.addEventListener('click', () => {
@@ -2098,38 +1985,23 @@ btnPrePost.addEventListener('click', () => {
 
 spectrumCard.addEventListener('click', (e) => {
     if (e.target.closest('.btn-group') || e.target.closest('button') || e.target.closest('input')) return;
-    
-    if (selectedMainMode === 'fft' || selectedMainMode === 'comb') {
-        fftConfigModal.classList.add('active');
-    }
+    if (selectedMainMode === 'fft' || selectedMainMode === 'comb') fftConfigModal.classList.add('active');
 });
 
 btnFftClose.addEventListener('click', () => fftConfigModal.classList.remove('active'));
-
 fftSizeSelect.addEventListener('change', (e) => {
     currentFFTSize = parseInt(e.target.value);
     if (analyser) analyser.fftSize = currentFFTSize;
 });
-
-fftSmoothParam.addEventListener('input', () => {
-    applyEffectiveAnalyserSmoothing();
-});
-
-fftMaxHzSelect.addEventListener('change', (e) => {
-    maxDisplayHz = parseInt(e.target.value);
-});
+fftSmoothParam.addEventListener('input', () => applyEffectiveAnalyserSmoothing());
+fftMaxHzSelect.addEventListener('change', (e) => maxDisplayHz = parseInt(e.target.value));
 
 function createAlgoButton(item, isSub = false) {
     const btn = document.createElement('button');
     btn.className = isSub ? `algo-sub-btn ${item.id === selectedMainMode ? 'selected' : ''}` : `algo-item-btn ${item.id === selectedMainMode ? 'selected' : ''}`;
     btn.dataset.id = item.id;
-    btn.innerHTML = `
-        <span class="algo-name">${item.name}</span>
-        <span class="algo-desc">${item.desc}</span>
-    `;
-    btn.addEventListener('click', () => {
-        selectMainMode(item.id, item.name);
-    });
+    btn.innerHTML = `<span class="algo-name">${item.name}</span><span class="algo-desc">${item.desc}</span>`;
+    btn.addEventListener('click', () => selectMainMode(item.id, item.name));
     return btn;
 }
 
@@ -2138,7 +2010,6 @@ function initSpecModalUI() {
     SPEC_ALGORITHMS.forEach(cat => {
         const groupEl = document.createElement('div');
         groupEl.className = 'algo-category-group';
-        
         const titleEl = document.createElement('div');
         titleEl.className = 'category-title';
         titleEl.textContent = cat.category;
@@ -2151,7 +2022,6 @@ function initSpecModalUI() {
             cat.groups.forEach(g => {
                 const groupContainer = document.createElement('div');
                 groupContainer.className = 'group-container';
-                
                 const groupTitle = document.createElement('span');
                 groupTitle.className = 'group-title';
                 groupTitle.textContent = g.groupTitle;
@@ -2159,19 +2029,14 @@ function initSpecModalUI() {
 
                 const subGrid = document.createElement('div');
                 subGrid.className = 'algo-grid-2col';
-                g.items.forEach(item => {
-                    subGrid.appendChild(createAlgoButton(item, true));
-                });
+                g.items.forEach(item => subGrid.appendChild(createAlgoButton(item, true)));
                 groupContainer.appendChild(subGrid);
-
                 gridEl.appendChild(groupContainer);
             });
         }
 
         if (cat.items) {
-            cat.items.forEach(item => {
-                gridEl.appendChild(createAlgoButton(item, false));
-            });
+            cat.items.forEach(item => gridEl.appendChild(createAlgoButton(item, false)));
         }
 
         groupEl.appendChild(gridEl);
@@ -2182,18 +2047,12 @@ function initSpecModalUI() {
 function selectMainMode(id, name) {
     selectedMainMode = id;
     currentSpecBadge.textContent = name;
-    
     document.querySelectorAll('.algo-item-btn, .algo-sub-btn').forEach(btn => {
-        if (btn.dataset.id === id) {
-            btn.classList.add('selected');
-        } else {
-            btn.classList.remove('selected');
-        }
+        if (btn.dataset.id === id) btn.classList.add('selected');
+        else btn.classList.remove('selected');
     });
 
-    if (id !== 'harmonicClarity') {
-        spectrumCard.classList.remove('hnr-pass-flash');
-    }
+    if (id !== 'harmonicClarity') spectrumCard.classList.remove('hnr-pass-flash');
 
     if (id === 'fft' || id === 'comb') {
         spectrumCard.classList.add('clickable-fft');
@@ -2236,20 +2095,16 @@ function updateSubControlsUI() {
         sonoPanel.classList.remove('active');
 
         if (selectedMainMode === 'fft') {
-            btnSub1.textContent = "LOG";
-            btnSub2.textContent = "LINEAR";
+            btnSub1.textContent = "LOG"; btnSub2.textContent = "LINEAR";
             btnSub1.classList.toggle('active', fftSubMode === 'log');
             btnSub2.classList.toggle('active', fftSubMode === 'linear');
         } else if (selectedMainMode === 'comb') {
-            btnSub1.textContent = "HZ軸";
-            btnSub2.textContent = "倍音軸";
+            btnSub1.textContent = "HZ軸"; btnSub2.textContent = "倍音軸";
             btnSub1.classList.toggle('active', combSubMode === 'hz');
             btnSub2.classList.toggle('active', combSubMode === 'harmonic');
         } else {
-            btnSub1.textContent = "VIEW";
-            btnSub2.textContent = "PRO";
-            btnSub1.classList.add('active');
-            btnSub2.classList.remove('active');
+            btnSub1.textContent = "VIEW"; btnSub2.textContent = "PRO";
+            btnSub1.classList.add('active'); btnSub2.classList.remove('active');
         }
     }
 }
@@ -2259,7 +2114,6 @@ btnSub1.addEventListener('click', () => {
     else if (selectedMainMode === 'comb') combSubMode = 'hz';
     updateSubControlsUI();
 });
-
 btnSub2.addEventListener('click', () => {
     if (selectedMainMode === 'fft') fftSubMode = 'linear';
     else if (selectedMainMode === 'comb') combSubMode = 'harmonic';
@@ -2282,9 +2136,7 @@ btnModalClose.addEventListener('click', () => specModal.classList.remove('active
 function resizeCanvas() {
     canvas.width = canvas.clientWidth;
     canvas.height = canvas.clientHeight;
-    
-    const targetWidth = 1200; 
-    const labelAreaHeight = 14;
+    const targetWidth = 1200, labelAreaHeight = 14;
     const targetHeight = Math.max(50, canvas.height - labelAreaHeight);
 
     if (sonogramCanvas.width !== targetWidth || sonogramCanvas.height !== targetHeight) {
@@ -2305,15 +2157,10 @@ window.addEventListener('resize', resizeCanvas);
 setTimeout(resizeCanvas, 100);
 
 function updateSliderProgressPrecise(slider, fillElement) {
-    const min = parseFloat(slider.min);
-    const max = parseFloat(slider.max);
-    const val = parseFloat(slider.value);
+    const min = parseFloat(slider.min), max = parseFloat(slider.max), val = parseFloat(slider.value);
     const ratio = (val - min) / (max - min);
-    
-    const wrapperHeight = slider.clientHeight;
-    const trackPadding = 12;
+    const wrapperHeight = slider.clientHeight, trackPadding = 12;
     const effectiveTrackHeight = wrapperHeight - (trackPadding * 2);
-    
     const fillHeightPx = ratio * effectiveTrackHeight;
     fillElement.style.height = `${Math.max(0, fillHeightPx)}px`;
 }
@@ -2332,18 +2179,14 @@ faderPairs.forEach(pair => {
     updateSliderProgressPrecise(pair.slider, pair.fill);
     pair.slider.addEventListener('input', (e) => {
         updateSliderProgressPrecise(e.target, pair.fill);
-        if (e.target === threshSlider) {
-            threshVal.textContent = `${Math.round(e.target.value)}dB`;
-        } else if (e.target === smoothSlider) {
+        if (e.target === threshSlider) threshVal.textContent = `${Math.round(e.target.value)}dB`;
+        else if (e.target === smoothSlider) {
             smoothVal.textContent = `${parseFloat(e.target.value).toFixed(2)}s`;
             applyEffectiveAnalyserSmoothing();
         }
     });
 });
-
-window.addEventListener('resize', () => {
-    faderPairs.forEach(pair => updateSliderProgressPrecise(pair.slider, pair.fill));
-});
+window.addEventListener('resize', () => faderPairs.forEach(pair => updateSliderProgressPrecise(pair.slider, pair.fill)));
 
 wF0.addEventListener('input', (e) => valWF0.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
 wLowP.addEventListener('input', (e) => valWLowP.textContent = `${parseFloat(e.target.value).toFixed(1)}x`);
@@ -2353,111 +2196,55 @@ wOther.addEventListener('input', (e) => valWOther.textContent = `${parseFloat(e.
 
 function setupAudioRouting() {
     if (!audioCtx || !analyser || !activeSourceNode) return;
-
     try { activeSourceNode.disconnect(); } catch(e){}
     if (nrHighpass) { try { nrHighpass.disconnect(); } catch(e){} }
     if (nrLowpass) { try { nrLowpass.disconnect(); } catch(e){} }
     if (nrDynamicsNode) { try { nrDynamicsNode.disconnect(); } catch(e){} }
     if (envCorrectionFilter) { try { envCorrectionFilter.disconnect(); } catch(e){} }
 
-    if (!nrHighpass) {
-        nrHighpass = audioCtx.createBiquadFilter();
-        nrHighpass.type = 'highpass';
-        nrHighpass.frequency.value = 100;
-    }
-
-    if (!nrLowpass) {
-        nrLowpass = audioCtx.createBiquadFilter();
-        nrLowpass.type = 'lowpass';
-        nrLowpass.frequency.value = 8000;
-    }
-
-    if (!nrDynamicsNode) {
-        nrDynamicsNode = audioCtx.createDynamicsCompressor();
-    }
-
-    if (!envCorrectionFilter) {
-        envCorrectionFilter = audioCtx.createBiquadFilter();
-    }
+    if (!nrHighpass) { nrHighpass = audioCtx.createBiquadFilter(); nrHighpass.type = 'highpass'; nrHighpass.frequency.value = 100; }
+    if (!nrLowpass) { nrLowpass = audioCtx.createBiquadFilter(); nrLowpass.type = 'lowpass'; nrLowpass.frequency.value = 8000; }
+    if (!nrDynamicsNode) nrDynamicsNode = audioCtx.createDynamicsCompressor();
+    if (!envCorrectionFilter) envCorrectionFilter = audioCtx.createBiquadFilter();
 
     if (envState === 1) {
-        envCorrectionFilter.type = 'peaking';
-        envCorrectionFilter.frequency.value = 350;
-        envCorrectionFilter.Q.value = 1.0;
-        envCorrectionFilter.gain.value = -3.5;
+        envCorrectionFilter.type = 'peaking'; envCorrectionFilter.frequency.value = 350; envCorrectionFilter.Q.value = 1.0; envCorrectionFilter.gain.value = -3.5;
     } else if (envState === 2) {
-        envCorrectionFilter.type = 'peaking';
-        envCorrectionFilter.frequency.value = 3200;
-        envCorrectionFilter.Q.value = 1.2;
-        envCorrectionFilter.gain.value = 4.0;
+        envCorrectionFilter.type = 'peaking'; envCorrectionFilter.frequency.value = 3200; envCorrectionFilter.Q.value = 1.2; envCorrectionFilter.gain.value = 4.0;
     } else {
-        envCorrectionFilter.type = 'allpass';
-        envCorrectionFilter.gain.value = 0;
+        envCorrectionFilter.type = 'allpass'; envCorrectionFilter.gain.value = 0;
     }
 
     let currentNode = activeSourceNode;
-
     try {
         if (nrState === 1) {
-            nrDynamicsNode.threshold.value = -24;
-            nrDynamicsNode.knee.value = 30;
-            nrDynamicsNode.ratio.value = 12;
-            currentNode.connect(nrHighpass);
-            nrHighpass.connect(nrDynamicsNode);
-            currentNode = nrDynamicsNode;
+            nrDynamicsNode.threshold.value = -24; nrDynamicsNode.knee.value = 30; nrDynamicsNode.ratio.value = 12;
+            currentNode.connect(nrHighpass); nrHighpass.connect(nrDynamicsNode); currentNode = nrDynamicsNode;
         } else if (nrState === 2) {
-            nrDynamicsNode.threshold.value = -12;
-            nrDynamicsNode.knee.value = 0;
-            nrDynamicsNode.ratio.value = 20;
-            currentNode.connect(nrHighpass);
-            nrHighpass.connect(nrLowpass);
-            nrLowpass.connect(nrDynamicsNode);
-            currentNode = nrDynamicsNode;
+            nrDynamicsNode.threshold.value = -12; nrDynamicsNode.knee.value = 0; nrDynamicsNode.ratio.value = 20;
+            currentNode.connect(nrHighpass); nrHighpass.connect(nrLowpass); nrLowpass.connect(nrDynamicsNode); currentNode = nrDynamicsNode;
         }
-
-        if (envState !== 0) {
-            currentNode.connect(envCorrectionFilter);
-            currentNode = envCorrectionFilter;
-        }
-
+        if (envState !== 0) { currentNode.connect(envCorrectionFilter); currentNode = envCorrectionFilter; }
         currentNode.connect(analyser);
-        if (needsDestination) {
-            currentNode.connect(audioCtx.destination);
-        }
-    } catch (err) {
-        console.error("Audio routing error:", err);
-    }
+        if (needsDestination) currentNode.connect(audioCtx.destination);
+    } catch (err) { console.error("Audio routing error:", err); }
 }
 
 btnNR.addEventListener('click', () => {
     nrState = (nrState + 1) % 3;
     btnNR.classList.remove('mode-on', 'mode-on2');
-
-    if (nrState === 0) {
-        btnNR.textContent = "NR:OFF";
-    } else if (nrState === 1) {
-        btnNR.textContent = "NR:ON";
-        btnNR.classList.add('mode-on');
-    } else if (nrState === 2) {
-        btnNR.textContent = "NR:ON2";
-        btnNR.classList.add('mode-on2');
-    }
+    if (nrState === 0) btnNR.textContent = "NR:OFF";
+    else if (nrState === 1) { btnNR.textContent = "NR:ON"; btnNR.classList.add('mode-on'); }
+    else if (nrState === 2) { btnNR.textContent = "NR:ON2"; btnNR.classList.add('mode-on2'); }
     setupAudioRouting();
 });
 
 btnEnv.addEventListener('click', () => {
     envState = (envState + 1) % 3;
     btnEnv.classList.remove('mode-ind', 'mode-out');
-
-    if (envState === 0) {
-        btnEnv.textContent = "ENV:OFF";
-    } else if (envState === 1) {
-        btnEnv.textContent = "ENV:IND";
-        btnEnv.classList.add('mode-ind');
-    } else if (envState === 2) {
-        btnEnv.textContent = "ENV:OUT";
-        btnEnv.classList.add('mode-out');
-    }
+    if (envState === 0) btnEnv.textContent = "ENV:OFF";
+    else if (envState === 1) { btnEnv.textContent = "ENV:IND"; btnEnv.classList.add('mode-ind'); }
+    else if (envState === 2) { btnEnv.textContent = "ENV:OUT"; btnEnv.classList.add('mode-out'); }
     setupAudioRouting();
 });
 
@@ -2470,79 +2257,34 @@ function hzToNote(hz) {
 
 function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
+    const m = Math.floor(seconds / 60), s = Math.floor(seconds % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
 function masterReset() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        try { mediaRecorder.stop(); } catch(e){}
-    }
-    mediaRecorder = null;
-    recordedChunks = [];
-
-    if (micStream) {
-        micStream.getTracks().forEach(track => track.stop());
-        micStream = null;
-    }
-
-    if (testOscillator) {
-        try { testOscillator.stop(); testOscillator.disconnect(); } catch(e){}
-        testOscillator = null;
-    }
-    if (testGain) {
-        try { testGain.disconnect(); } catch(e){}
-        testGain = null;
-    }
-    if (mockTimer) {
-        clearInterval(mockTimer);
-        mockTimer = null;
-    }
-
-    if (audioElement) {
-        try {
-            audioElement.pause();
-            audioElement.currentTime = 0;
-            audioElement.src = "";
-            audioElement.remove();
-        } catch(e){}
-        audioElement = null;
-    }
-    if (audioElementSource) {
-        try { audioElementSource.disconnect(); } catch(e){}
-        audioElementSource = null;
-    }
-
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { mediaRecorder.stop(); } catch(e){} }
+    mediaRecorder = null; recordedChunks = [];
+    if (micStream) { micStream.getTracks().forEach(track => track.stop()); micStream = null; }
+    if (testOscillator) { try { testOscillator.stop(); testOscillator.disconnect(); } catch(e){} testOscillator = null; }
+    if (testGain) { try { testGain.disconnect(); } catch(e){} testGain = null; }
+    if (mockTimer) { clearInterval(mockTimer); mockTimer = null; }
+    if (audioElement) { try { audioElement.pause(); audioElement.currentTime = 0; audioElement.src = ""; audioElement.remove(); } catch(e){} audioElement = null; }
+    if (audioElementSource) { try { audioElementSource.disconnect(); } catch(e){} audioElementSource = null; }
     if (nrHighpass) { try { nrHighpass.disconnect(); } catch(e){} nrHighpass = null; }
     if (nrLowpass) { try { nrLowpass.disconnect(); } catch(e){} nrLowpass = null; }
     if (nrDynamicsNode) { try { nrDynamicsNode.disconnect(); } catch(e){} nrDynamicsNode = null; }
     if (envCorrectionFilter) { try { envCorrectionFilter.disconnect(); } catch(e){} envCorrectionFilter = null; }
-
-    if (audioCtx && audioCtx.state !== 'closed') {
-        try { audioCtx.close(); } catch(e){}
-        audioCtx = null;
-    }
+    if (audioCtx && audioCtx.state !== 'closed') { try { audioCtx.close(); } catch(e){} audioCtx = null; }
 
     currentMode = "IDLE";
     activeSourceNode = null;
     lastLoopTimestamp = 0;
-    displayF0Hz = 0;
-    displayF0Db = -120;
-    displayMaxHz = 0;
-    displayMaxDb = -120;
-    displayDeltaDb = 0;
-    displayHnrScore = 0;
+    displayF0Hz = 0; displayF0Db = -120; displayMaxHz = 0; displayMaxDb = -120; displayDeltaDb = 0; displayHnrScore = 0;
+    prevSpectrumArray = null;
 
-    btnStart.textContent = "START";
-    btnStart.style.backgroundColor = "var(--f0-color)";
-
-    btnTest.textContent = "TEST";
-    btnTest.style.backgroundColor = "var(--low-phar-color)";
-
-    btnRec.classList.remove('recording');
-    recBtnText.textContent = "REC";
-
+    btnStart.textContent = "START"; btnStart.style.backgroundColor = "var(--f0-color)";
+    btnTest.textContent = "TEST"; btnTest.style.backgroundColor = "var(--low-phar-color)";
+    btnRec.classList.remove('recording'); recBtnText.textContent = "REC";
     statusText.textContent = "待機中";
     updateStatusSubWindow();
     updateBgmGainValue();
@@ -2550,42 +2292,25 @@ function masterReset() {
 }
 
 async function toggleMicMode() {
-    if (currentMode === "MIC") {
-        masterReset();
-        return;
-    }
-
+    if (currentMode === "MIC") { masterReset(); return; }
     masterReset();
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
         applyEffectiveAnalyserSmoothing();
 
-        const micConstraints = {
-            audio: {
-                autoGainControl: false,    
-                echoCancellation: false,  
-                noiseSuppression: false   
-            },
-            video: false
-        };
-
-        micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false }, video: false });
         activeSourceNode = audioCtx.createMediaStreamSource(micStream);
         needsDestination = false;
         setupAudioRouting();
 
         currentMode = "MIC";
-        btnStart.textContent = "STOP";
-        btnStart.style.backgroundColor = "#ef4444";
+        btnStart.textContent = "STOP"; btnStart.style.backgroundColor = "#ef4444";
         statusText.textContent = "マイク解析中";
-        
         updateStatusSubWindow();
         updateBgmGainValue();
-
         if (!window._loopRunning) loop();
     } catch (err) {
         console.error("Mic access error:", err);
@@ -2595,16 +2320,11 @@ async function toggleMicMode() {
 }
 
 async function toggleTestMode() {
-    if (currentMode === "TEST") {
-        masterReset();
-        return;
-    }
-
+    if (currentMode === "TEST") { masterReset(); return; }
     masterReset();
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
         applyEffectiveAnalyserSmoothing();
@@ -2615,14 +2335,10 @@ async function toggleTestMode() {
         testOscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
 
         const filter = audioCtx.createBiquadFilter();
-        filter.type = 'peaking';
-        filter.frequency.value = 1500;
-        filter.Q.value = 6;
-        filter.gain.value = 25;
+        filter.type = 'peaking'; filter.frequency.value = 1500; filter.Q.value = 6; filter.gain.value = 25;
 
         testOscillator.connect(filter);
         filter.connect(testGain);
-        
         activeSourceNode = testGain;
         needsDestination = true;
         setupAudioRouting();
@@ -2644,7 +2360,6 @@ async function toggleTestMode() {
         statusText.textContent = "テスト音源再生中";
         updateStatusSubWindow();
         updateBgmGainValue();
-
         if (!window._loopRunning) loop();
     } catch (err) {
         console.error("Test sound error:", err);
@@ -2654,31 +2369,18 @@ async function toggleTestMode() {
 
 async function toggleRecordMode() {
     if (currentMode === "REC") {
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop();
-        }
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
         return;
     }
-
     masterReset();
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
         applyEffectiveAnalyserSmoothing();
 
-        const recConstraints = {
-            audio: {
-                autoGainControl: false,
-                echoCancellation: false,
-                noiseSuppression: false
-            },
-            video: false
-        };
-
-        micStream = await navigator.mediaDevices.getUserMedia(recConstraints);
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false }, video: false });
         activeSourceNode = audioCtx.createMediaStreamSource(micStream);
         needsDestination = false;
         setupAudioRouting();
@@ -2689,45 +2391,30 @@ async function toggleRecordMode() {
         statusText.textContent = "録音・解析中";
         updateStatusSubWindow();
         updateBgmGainValue();
-
         if (!window._loopRunning) loop();
 
         recordedChunks = [];
         const preferredTypes = ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
         let selectedMimeType = '';
         for (const type of preferredTypes) {
-            if (MediaRecorder.isTypeSupported(type)) {
-                selectedMimeType = type;
-                break;
-            }
+            if (MediaRecorder.isTypeSupported(type)) { selectedMimeType = type; break; }
         }
-
-        const options = selectedMimeType ? { mimeType: selectedMimeType } : {};
-        mediaRecorder = new MediaRecorder(micStream, options);
-
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-        };
-
+        mediaRecorder = new MediaRecorder(micStream, selectedMimeType ? { mimeType: selectedMimeType } : {});
+        mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
         mediaRecorder.onstop = () => {
             const finalMime = mediaRecorder.mimeType || selectedMimeType || 'audio/webm';
             latestRecordedBlob = new Blob(recordedChunks, { type: finalMime });
-
             if (latestRecordedBlobUrl) URL.revokeObjectURL(latestRecordedBlobUrl);
             latestRecordedBlobUrl = URL.createObjectURL(latestRecordedBlob);
 
             const ext = (finalMime.includes('mp4') || finalMime.includes('aac')) ? 'm4a' : 'webm';
             const fileName = `VocalRec_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.${ext}`;
-
             fileNameDisplay.textContent = fileName;
             btnFilePlay.disabled = false;
             seekSlider.disabled = false;
             lastFileObjectURL = latestRecordedBlobUrl;
-
-            const recFile = new File([latestRecordedBlob], fileName, { type: finalMime });
-            startFileMode(recFile);
+            startFileMode(new File([latestRecordedBlob], fileName, { type: finalMime }));
         };
-
         mediaRecorder.start(250);
     } catch (err) {
         console.error("Recording error:", err);
@@ -2741,20 +2428,15 @@ async function startFileMode(file) {
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
         applyEffectiveAnalyserSmoothing();
 
         audioElement = document.createElement('audio');
-        audioElement.preload = 'auto';
-        audioElement.playsInline = true;
-        audioElement.crossOrigin = "anonymous";
+        audioElement.preload = 'auto'; audioElement.playsInline = true; audioElement.crossOrigin = "anonymous";
         audioElement.loop = repeatToggle.checked;
 
-        if (lastFileObjectURL && lastFileObjectURL !== latestRecordedBlobUrl) {
-            URL.revokeObjectURL(lastFileObjectURL);
-        }
+        if (lastFileObjectURL && lastFileObjectURL !== latestRecordedBlobUrl) URL.revokeObjectURL(lastFileObjectURL);
         lastFileObjectURL = URL.createObjectURL(file);
         audioElement.src = lastFileObjectURL;
 
@@ -2769,11 +2451,9 @@ async function startFileMode(file) {
 
         audioElement.addEventListener('timeupdate', () => {
             if (isSeeking || !audioElement.duration) return;
-            const percent = (audioElement.currentTime / audioElement.duration) * 100;
-            seekSlider.value = percent;
+            seekSlider.value = (audioElement.currentTime / audioElement.duration) * 100;
             fileTimeDisplay.textContent = `${formatTime(audioElement.currentTime)} / ${formatTime(audioElement.duration)}`;
         });
-
         audioElement.addEventListener('ended', () => {
             if (!repeatToggle.checked) btnFilePlay.textContent = "再生";
         });
@@ -2785,7 +2465,6 @@ async function startFileMode(file) {
         statusText.textContent = "ファイル再生解析中";
         updateStatusSubWindow();
         updateBgmGainValue();
-
         if (!window._loopRunning) loop();
     } catch (err) {
         console.error("Audio file load failed:", err);
@@ -2798,20 +2477,13 @@ btnStart.addEventListener('click', toggleMicMode);
 btnTest.addEventListener('click', toggleTestMode);
 btnRec.addEventListener('click', toggleRecordMode);
 
-repeatToggle.addEventListener('change', () => {
-    if (audioElement) audioElement.loop = repeatToggle.checked;
-});
+repeatToggle.addEventListener('change', () => { if (audioElement) audioElement.loop = repeatToggle.checked; });
 
 btnFilePlay.addEventListener('click', async () => {
     if (currentMode !== "FILE" || !audioElement) return;
     if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-    if (audioElement.paused) {
-        await audioElement.play();
-        btnFilePlay.textContent = "一時停止";
-    } else {
-        audioElement.pause();
-        btnFilePlay.textContent = "再生";
-    }
+    if (audioElement.paused) { await audioElement.play(); btnFilePlay.textContent = "一時停止"; }
+    else { audioElement.pause(); btnFilePlay.textContent = "再生"; }
 });
 
 seekSlider.addEventListener('input', (e) => {
@@ -2820,7 +2492,6 @@ seekSlider.addEventListener('input', (e) => {
     const seekTime = (e.target.value / 100) * audioElement.duration;
     fileTimeDisplay.textContent = `${formatTime(seekTime)} / ${formatTime(audioElement.duration)}`;
 });
-
 seekSlider.addEventListener('change', (e) => {
     if (currentMode !== "FILE" || !audioElement || !audioElement.duration) return;
     audioElement.currentTime = (e.target.value / 100) * audioElement.duration;
@@ -2830,65 +2501,35 @@ seekSlider.addEventListener('change', (e) => {
 btnFileSave.addEventListener('click', async () => {
     let targetBlob = latestRecordedBlob;
     if (!targetBlob && lastFileObjectURL) {
-        try {
-            const res = await fetch(lastFileObjectURL);
-            targetBlob = await res.blob();
-        } catch(e) {}
+        try { const res = await fetch(lastFileObjectURL); targetBlob = await res.blob(); } catch(e) {}
     }
-
-    if (!targetBlob || targetBlob.size === 0) {
-        alert("保存する音声データがありません。録音またはファイルを開いてください。");
-        return;
-    }
-
+    if (!targetBlob || targetBlob.size === 0) { alert("保存する音声データがありません。録音またはファイルを開いてください。"); return; }
     const mime = targetBlob.type || 'audio/webm';
     const extension = (mime.includes('mp4') || mime.includes('aac')) ? 'm4a' : 'webm';
     const fileName = `VocalRec_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.${extension}`;
     const downloadFile = new File([targetBlob], fileName, { type: mime });
 
     if (navigator.canShare && navigator.canShare({ files: [downloadFile] })) {
-        try {
-            await navigator.share({ files: [downloadFile], title: '録音データ保存' });
-            return;
-        } catch (err) {
-            if (err.name === 'AbortError') return;
-        }
+        try { await navigator.share({ files: [downloadFile], title: '録音データ保存' }); return; } catch (err) { if (err.name === 'AbortError') return; }
     }
-
     const url = URL.createObjectURL(targetBlob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
+    const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click();
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
 });
 
-btnFileOpen.addEventListener('click', () => {
-    audioFileInput.value = "";
-    audioFileInput.click();
-});
-
-audioFileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) startFileMode(file);
-});
+btnFileOpen.addEventListener('click', () => { audioFileInput.value = ""; audioFileInput.click(); });
+audioFileInput.addEventListener('change', (e) => { const file = e.target.files[0]; if (file) startFileMode(file); });
 
 function startIdleStatusMonitor() {
     if (window._loopRunning) return;
     function idleLoop() {
         if (currentMode !== "IDLE" || isBgmPlaying || isTaikoPlaying) {
             updateStatusSubWindow();
-            if (currentMode !== "IDLE") {
-                window._loopRunning = false;
-                return;
-            }
+            if (currentMode !== "IDLE") { window._loopRunning = false; return; }
         }
         if (!isBgmPlaying && !isTaikoPlaying && currentMode === "IDLE") {
-            updateStatusSubWindow();
-            window._loopRunning = false;
-            return;
+            updateStatusSubWindow(); window._loopRunning = false; return;
         }
         requestAnimationFrame(idleLoop);
     }
@@ -2919,11 +2560,20 @@ function loop(timestamp) {
     const rawDataArray = new Float32Array(bufferLength);
     analyser.getFloatFrequencyData(rawDataArray);
 
-    // Safariが返す -Infinity / NaN を即座にサニタイズ
     for (let i = 0; i < bufferLength; i++) {
         if (!Number.isFinite(rawDataArray[i]) || rawDataArray[i] < -140) {
             rawDataArray[i] = -140;
         }
+    }
+
+    // ★ Safari 120Hz/高速描画でのクシ形ノイズ（チラつき）完全防止：強力なフレーム間EMAキャッシュフィルター
+    if (!prevSpectrumArray || prevSpectrumArray.length !== bufferLength) {
+        prevSpectrumArray = new Float32Array(rawDataArray);
+    }
+    const smoothFactor = 0.42; // Safari特有の高速更新をなめらかに繋ぐ固定EMA係数
+    for (let i = 0; i < bufferLength; i++) {
+        prevSpectrumArray[i] = prevSpectrumArray[i] * (1.0 - smoothFactor) + rawDataArray[i] * smoothFactor;
+        rawDataArray[i] = prevSpectrumArray[i];
     }
 
     const sampleRate = audioCtx ? audioCtx.sampleRate : 48000;
@@ -2931,7 +2581,6 @@ function loop(timestamp) {
     const threshold = parseFloat(threshSlider.value) + parseFloat(fftPeakSens.value);
     const smoothTimeSec = parseFloat(smoothSlider.value);
 
-    // ProMotion 120Hz を含む全フレームレート環境で同一の滑らかさを保つ実時間ベースEMA係数
     const effectiveSmoothSec = Math.max(0.05, smoothTimeSec);
     const alpha = 1.0 - Math.exp(-dt / effectiveSmoothSec);
     const numAlpha = 1.0 - Math.exp(-dt / Math.max(0.075, smoothTimeSec));
@@ -2955,7 +2604,6 @@ function loop(timestamp) {
     let totalHarmonicPower = 0;
     let totalNoisePower = 0;
 
-    // 高域エイリアシングノイズ（6kHz以上の折り返しスパイク）を拾わないよう探索上限を設定
     const peakSearchUpperHz = Math.min(maxDisplayHz, 5800);
 
     for (let i = 0; i < bufferLength; i++) {
@@ -3028,13 +2676,9 @@ function loop(timestamp) {
         }
     }
 
-    // 数値・マーカーの滑らか追従とヒステリシス安定化
     if (f0DbVal > threshold && f0HzVal > 0) {
-        if (displayF0Hz <= 0 || Math.abs(f0HzVal - displayF0Hz) > 85) {
-            displayF0Hz = f0HzVal;
-        } else {
-            displayF0Hz = displayF0Hz + (f0HzVal - displayF0Hz) * numAlpha;
-        }
+        if (displayF0Hz <= 0 || Math.abs(f0HzVal - displayF0Hz) > 85) displayF0Hz = f0HzVal;
+        else displayF0Hz = displayF0Hz + (f0HzVal - displayF0Hz) * numAlpha;
         displayF0Db = displayF0Db <= -110 ? f0DbVal : (displayF0Db + (f0DbVal - displayF0Db) * numAlpha);
     } else {
         displayF0Hz = 0;
@@ -3042,11 +2686,8 @@ function loop(timestamp) {
     }
 
     if (maxDb > threshold && maxHz > 0) {
-        if (displayMaxHz <= 0 || Math.abs(maxHz - displayMaxHz) > 400) {
-            displayMaxHz = maxHz;
-        } else {
-            displayMaxHz = displayMaxHz + (maxHz - displayMaxHz) * numAlpha;
-        }
+        if (displayMaxHz <= 0 || Math.abs(maxHz - displayMaxHz) > 400) displayMaxHz = maxHz;
+        else displayMaxHz = displayMaxHz + (maxHz - displayMaxHz) * numAlpha;
         displayMaxDb = displayMaxDb <= -110 ? maxDb : (displayMaxDb + (maxDb - displayMaxDb) * numAlpha);
     } else {
         displayMaxHz = 0;
@@ -3058,9 +2699,7 @@ function loop(timestamp) {
 
     if (f0HzValGlobal > 0) {
         pitchHistoryBuffer.push({ time: now, f0: f0HzValGlobal });
-        while (pitchHistoryBuffer.length > 0 && (now - pitchHistoryBuffer[0].time) > 1000) {
-            pitchHistoryBuffer.shift();
-        }
+        while (pitchHistoryBuffer.length > 0 && (now - pitchHistoryBuffer[0].time) > 1000) pitchHistoryBuffer.shift();
     }
 
     if (f0HzValGlobal >= 80) {
@@ -3069,15 +2708,11 @@ function loop(timestamp) {
             const binIdx = Math.round(targetHz / binHz);
             if (binIdx >= 0 && binIdx < bufferLength && processedDataArray[binIdx] > threshold) {
                 const hDb = processedDataArray[binIdx];
-                let noiseSum = 0;
-                let count = 0;
+                let noiseSum = 0, count = 0;
                 for (let off = -2; off <= 2; off++) {
                     if (off === 0) continue;
                     const nBin = binIdx + off;
-                    if (nBin >= 0 && nBin < bufferLength) {
-                        noiseSum += Math.pow(10, processedDataArray[nBin] / 10);
-                        count++;
-                    }
+                    if (nBin >= 0 && nBin < bufferLength) { noiseSum += Math.pow(10, processedDataArray[nBin] / 10); count++; }
                 }
                 const hPow = Math.pow(10, hDb / 10);
                 const nPow = count > 0 ? noiseSum / count : 1e-6;
@@ -3086,18 +2721,13 @@ function loop(timestamp) {
             }
         }
     }
-    const rawOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 
-        ? (totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100 
-        : 0;
+    const rawOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 ? (totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100 : 0;
     displayHnrScore = displayHnrScore + (rawOverallHnr - displayHnrScore) * numAlpha;
     const currentOverallHnr = Math.round(displayHnrScore);
 
     if (selectedMainMode === 'harmonicClarity') {
-        if (currentOverallHnr >= 85 && f0HzValGlobal > 0) {
-            spectrumCard.classList.add('hnr-pass-flash');
-        } else {
-            spectrumCard.classList.remove('hnr-pass-flash');
-        }
+        if (currentOverallHnr >= 85 && f0HzValGlobal > 0) spectrumCard.classList.add('hnr-pass-flash');
+        else spectrumCard.classList.remove('hnr-pass-flash');
     } else {
         spectrumCard.classList.remove('hnr-pass-flash');
     }
@@ -3131,11 +2761,8 @@ function loop(timestamp) {
 
     const roundOral = Math.round(displayPctOral);
     const roundThroat = 100 - roundOral;
-
-    barOral.style.width = `${roundOral}%`;
-    barOral.textContent = `口 ${roundOral}%`;
-    barThroat.style.width = `${roundThroat}%`;
-    barThroat.textContent = `喉 ${roundThroat}%`;
+    barOral.style.width = `${roundOral}%`; barOral.textContent = `口 ${roundOral}%`;
+    barThroat.style.width = `${roundThroat}%`; barThroat.textContent = `喉 ${roundThroat}%`;
 
     const rawDbOral = 10 * Math.log10(pOral || 1e-10);
     const rawDbThroat = 10 * Math.log10(pThroat || 1e-10);
@@ -3155,9 +2782,7 @@ function loop(timestamp) {
         const rOther = Math.max(0, 100 - (rF0 + rLowP + rHighP + rTwang));
         targetRatios = [rF0, rLowP, rHighP, rTwang, rOther];
     }
-    for (let k = 0; k < 5; k++) {
-        displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
-    }
+    for (let k = 0; k < 5; k++) displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
     const [srF0, srLowP, srHighP, srTwang, srOther] = displayRatios.map(v => Math.round(v));
 
     segF0.style.width = `${srF0}%`; segF0.textContent = srF0 > 5 ? `${srF0}%` : '';
@@ -3175,30 +2800,18 @@ function loop(timestamp) {
         deltaText.textContent = '-- dB';
     }
 
-    let rawStatus = "通常発声";
-    let rawColor = "#ffffff";
-
+    let rawStatus = "通常発声", rawColor = "#ffffff";
     if (maxDb > threshold && displayMaxHz > 0) {
-        if (displayMaxHz >= 1500 && displayMaxHz <= 2500) {
-            rawStatus = "高音ファリンジャル共鳴";
-            rawColor = COLOR_HIGH_P;
-        } else if (displayMaxHz >= 600 && displayMaxHz < 1500) {
-            rawStatus = "低音ファリンジャル共鳴";
-            rawColor = COLOR_LOW_P;
-        } else if (displayMaxHz > 2500) {
-            rawStatus = "喉トワング強調";
-            rawColor = COLOR_TWANG;
-        }
+        if (displayMaxHz >= 1500 && displayMaxHz <= 2500) { rawStatus = "高音ファリンジャル共鳴"; rawColor = COLOR_HIGH_P; }
+        else if (displayMaxHz >= 600 && displayMaxHz < 1500) { rawStatus = "低音ファリンジャル共鳴"; rawColor = COLOR_LOW_P; }
+        else if (displayMaxHz > 2500) { rawStatus = "喉トワング強調"; rawColor = COLOR_TWANG; }
     }
 
-    if (rawStatus === currentStableStatus) {
-        statusStableElapsedSec = 0;
-    } else {
+    if (rawStatus === currentStableStatus) statusStableElapsedSec = 0;
+    else {
         statusStableElapsedSec += dt;
         if (statusStableElapsedSec >= STATUS_STABLE_DURATION_SEC) {
-            currentStableStatus = rawStatus;
-            currentStableColor = rawColor;
-            statusStableElapsedSec = 0;
+            currentStableStatus = rawStatus; currentStableColor = rawColor; statusStableElapsedSec = 0;
         }
     }
 
@@ -3211,36 +2824,20 @@ function loop(timestamp) {
     }
 
     if (selectedMainMode === 'fft') {
-        if (fftSubMode === 'log') {
-            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
-        } else {
-            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
-        }
+        if (fftSubMode === 'log') drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
+        else drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
     } else if (selectedMainMode === 'comb') {
-        if (combSubMode === 'hz') {
-            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
-        } else {
-            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
-        }
+        if (combSubMode === 'hz') drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
+        else drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
     } else if (selectedMainMode === 'sonogram') {
-        if (sonoAxisMode === 'tracer') {
-            drawTracerSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, dt);
-        } else {
-            drawSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, maxHzGlobal, dt);
-        }
-    } else if (selectedMainMode === 'formant') {
-        drawFormantMap(processedDataArray, bufferLength, binHz, threshold);
-    } else if (selectedMainMode === 'tiltRichness') {
-        drawTiltRichnessMap(processedDataArray, bufferLength, binHz, threshold);
-    } else if (selectedMainMode === 'modulation') {
-        drawModulationMap();
-    } else if (selectedMainMode === 'spreadConc') {
-        drawSpreadConcentrationMap(processedDataArray, bufferLength, binHz, threshold);
-    } else if (selectedMainMode === 'harmonicClarity') {
-        drawHarmonicClarityAnalyzer(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, currentOverallHnr);
-    } else if (selectedMainMode === 'energyGravity') {
-        drawEnergyGravityMonitor(processedDataArray, bufferLength, binHz, threshold, {weightF0, weightLowP, weightHighP, weightTwang, weightOther});
-    }
+        if (sonoAxisMode === 'tracer') drawTracerSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, dt);
+        else drawSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, maxHzGlobal, dt);
+    } else if (selectedMainMode === 'formant') drawFormantMap(processedDataArray, bufferLength, binHz, threshold);
+    else if (selectedMainMode === 'tiltRichness') drawTiltRichnessMap(processedDataArray, bufferLength, binHz, threshold);
+    else if (selectedMainMode === 'modulation') drawModulationMap();
+    else if (selectedMainMode === 'spreadConc') drawSpreadConcentrationMap(processedDataArray, bufferLength, binHz, threshold);
+    else if (selectedMainMode === 'harmonicClarity') drawHarmonicClarityAnalyzer(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, currentOverallHnr);
+    else if (selectedMainMode === 'energyGravity') drawEnergyGravityMonitor(processedDataArray, bufferLength, binHz, threshold, {weightF0, weightLowP, weightHighP, weightTwang, weightOther});
 }
 
 function drawDbAxisGrid(graphHeight, topMargin) {
@@ -3250,12 +2847,10 @@ function drawDbAxisGrid(graphHeight, topMargin) {
     dbLevels.forEach(db => {
         const h = (Math.max(0, db + 120) / 100) * graphHeight;
         const y = topMargin + graphHeight - h;
-        
         ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
         ctx.setLineDash([2, 2]);
         ctx.beginPath(); ctx.moveTo(25, y); ctx.lineTo(canvas.width, y); ctx.stroke();
         ctx.setLineDash([]);
-
         ctx.fillStyle = '#94a3b8';
         ctx.fillText(`${db}dB`, 2, y + 3);
     });
@@ -3268,9 +2863,7 @@ function drawSpectrumLog(dataArray, bufferLength, binHz, threshold, f0HzVal, max
 
     const minHz = 100, maxHzRange = maxDisplayHz;
     const logMin = Math.log10(minHz), logMax = Math.log10(maxHzRange);
-    
-    const topMargin = 22;
-    const labelAreaHeight = 12;
+    const topMargin = 22, labelAreaHeight = 12;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
 
     drawDbAxisGrid(graphHeight, topMargin);
@@ -3303,34 +2896,20 @@ function drawSpectrumLog(dataArray, bufferLength, binHz, threshold, f0HzVal, max
 
     if (f0HzVal >= 100 && f0HzVal <= maxHzRange) {
         const f0X = 30 + (((Math.log10(f0HzVal) - logMin) / (logMax - logMin)) * (canvas.width - 30));
-        ctx.strokeStyle = COLOR_F0;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = COLOR_F0; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
         ctx.beginPath(); ctx.moveTo(f0X, topMargin); ctx.lineTo(f0X, topMargin + graphHeight); ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.fillStyle = COLOR_F0;
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = COLOR_F0; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼F0", f0X, 9);
     }
     if (maxHz >= 100 && maxHz <= maxHzRange) {
         const maxX = 30 + (((Math.log10(maxHz) - logMin) / (logMax - logMin)) * (canvas.width - 30));
-        ctx.strokeStyle = '#eab308';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
         ctx.beginPath(); ctx.moveTo(maxX, topMargin); ctx.lineTo(maxX, topMargin + graphHeight); ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.fillStyle = '#eab308';
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#eab308'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼Peak", maxX, 9);
     }
 }
@@ -3341,8 +2920,7 @@ function drawSpectrumLinear(dataArray, bufferLength, binHz, threshold, f0HzVal, 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const maxHzRange = maxDisplayHz;
-    const topMargin = 22;
-    const labelAreaHeight = 12;
+    const topMargin = 22, labelAreaHeight = 12;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
 
     drawDbAxisGrid(graphHeight, topMargin);
@@ -3375,35 +2953,20 @@ function drawSpectrumLinear(dataArray, bufferLength, binHz, threshold, f0HzVal, 
 
     if (f0HzVal >= 100 && f0HzVal <= maxHzRange) {
         const f0X = 30 + ((f0HzVal / maxHzRange) * (canvas.width - 30));
-        ctx.strokeStyle = COLOR_F0;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = COLOR_F0; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
         ctx.beginPath(); ctx.moveTo(f0X, topMargin); ctx.lineTo(f0X, topMargin + graphHeight); ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.fillStyle = COLOR_F0;
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = COLOR_F0; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(f0X, 17); ctx.lineTo(f0X - 4, 11); ctx.lineTo(f0X + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼F0", f0X, 9);
     }
-
     if (maxHz > 0 && maxHz <= maxHzRange) {
         const maxX = 30 + ((maxHz / maxHzRange) * (canvas.width - 30));
-        ctx.strokeStyle = '#eab308';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
         ctx.beginPath(); ctx.moveTo(maxX, topMargin); ctx.lineTo(maxX, topMargin + graphHeight); ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.fillStyle = '#eab308';
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#eab308'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(maxX, 17); ctx.lineTo(maxX - 4, 11); ctx.lineTo(maxX + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼Peak", maxX, 9);
     }
 }
@@ -3444,8 +3007,7 @@ function drawHarmonicAxis(dataArray, bufferLength, binHz, threshold, f0HzVal, ma
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const topMargin = 22;
-    const labelAreaHeight = 12;
+    const topMargin = 22, labelAreaHeight = 12;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
     drawDbAxisGrid(graphHeight, topMargin);
 
@@ -3454,9 +3016,7 @@ function drawHarmonicAxis(dataArray, bufferLength, binHz, threshold, f0HzVal, ma
     const availableWidth = canvas.width - 30;
     const colWidth = availableWidth / maxHarmonics;
 
-    let f0PixelX = 0;
-    let peakPixelX = 0;
-    let hasPeakFound = false;
+    let f0PixelX = 0, peakPixelX = 0, hasPeakFound = false;
 
     for (let n = 1; n <= maxHarmonics; n++) {
         const targetHz = effectiveF0 * n;
@@ -3479,10 +3039,7 @@ function drawHarmonicAxis(dataArray, bufferLength, binHz, threshold, f0HzVal, ma
         const isMaxHarmonic = Math.abs(targetHz - maxHz) < (effectiveF0 * 0.4);
 
         if (isF0) f0PixelX = centerX;
-        if (isMaxHarmonic && !hasPeakFound) {
-            peakPixelX = centerX;
-            hasPeakFound = true;
-        }
+        if (isMaxHarmonic && !hasPeakFound) { peakPixelX = centerX; hasPeakFound = true; }
 
         ctx.fillStyle = isF0 ? COLOR_F0 : (isMaxHarmonic ? '#eab308' : '#94a3b8');
         ctx.font = (isF0 || isMaxHarmonic) ? 'bold 8px sans-serif' : '7px sans-serif';
@@ -3497,21 +3054,13 @@ function drawHarmonicAxis(dataArray, bufferLength, binHz, threshold, f0HzVal, ma
     }
 
     if (effectiveF0 >= 60) {
-        ctx.fillStyle = COLOR_F0;
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(f0PixelX, 17); ctx.lineTo(f0PixelX - 4, 11); ctx.lineTo(f0PixelX + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = COLOR_F0; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(f0PixelX, 17); ctx.lineTo(f0PixelX - 4, 11); ctx.lineTo(f0PixelX + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼F0", f0PixelX, 9);
     }
     if (hasPeakFound) {
-        ctx.fillStyle = '#eab308';
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.beginPath();
-        ctx.moveTo(peakPixelX, 17); ctx.lineTo(peakPixelX - 4, 11); ctx.lineTo(peakPixelX + 4, 11);
-        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#eab308'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.beginPath(); ctx.moveTo(peakPixelX, 17); ctx.lineTo(peakPixelX - 4, 11); ctx.lineTo(peakPixelX + 4, 11); ctx.closePath(); ctx.fill();
         ctx.fillText("▼Peak", peakPixelX, 9);
     }
 }
@@ -3531,8 +3080,7 @@ function getSonogramY(hz, sHeight, f0Val) {
         const minHz = 100, maxHz = maxDisplayHz;
         if (hz < minHz || hz > maxHz) return -1;
         const logMin = Math.log10(minHz), logMax = Math.log10(maxHz);
-        const logVal = Math.log10(hz);
-        const normY = (logVal - logMin) / (logMax - logMin);
+        const normY = (Math.log10(hz) - logMin) / (logMax - logMin);
         return sHeight - (normY * sHeight);
     }
 }
@@ -3540,8 +3088,7 @@ function getSonogramY(hz, sHeight, f0Val) {
 function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
     if (!canvas.width || !canvas.height) return;
 
-    const sWidth = sonogramCanvas.width;
-    const sHeight = sonogramCanvas.height;
+    const sWidth = sonogramCanvas.width, sHeight = sonogramCanvas.height;
     const frameDt = dt || (1.0 / 60.0);
     const shiftPx = Math.max(1, (sWidth / sonoTimeWindowSec) * frameDt);
 
@@ -3549,8 +3096,7 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
     sonogramCtx.fillStyle = '#000000';
     sonogramCtx.fillRect(sWidth - shiftPx, 0, shiftPx, sHeight);
 
-    const xPos = sWidth - shiftPx;
-    const sliceWidth = Math.ceil(shiftPx);
+    const xPos = sWidth - shiftPx, sliceWidth = Math.ceil(shiftPx);
 
     if (sonoAxisMode === 'harmonic') {
         const maxHarmonics = 24;
@@ -3562,12 +3108,10 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
             const binIdx = Math.round(targetHz / binHz);
             const db = (binIdx >= 0 && binIdx < bufferLength) ? dataArray[binIdx] : -120;
             const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
-            
             if (intensity > 0.05) {
                 const hue = (1.0 - intensity) * 240;
                 sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-                const y = sHeight - (n * colHeight);
-                sonogramCtx.fillRect(xPos, y, sliceWidth, colHeight);
+                sonogramCtx.fillRect(xPos, sHeight - (n * colHeight), sliceWidth, colHeight);
             }
         }
     } else if (sonoAxisMode === 'linear') {
@@ -3577,10 +3121,8 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
             if (hz > maxHz) break;
             const db = dataArray[i];
             const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
-
             if (intensity > 0.05) {
-                const normY = hz / maxHz;
-                const y = sHeight - (normY * sHeight);
+                const y = sHeight - ((hz / maxHz) * sHeight);
                 const hue = (1.0 - intensity) * 240;
                 sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
                 sonogramCtx.fillRect(xPos, y - 1, sliceWidth, 2);
@@ -3589,18 +3131,14 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
     } else {
         const minHz = 100, maxHz = maxDisplayHz;
         const logMin = Math.log10(minHz), logMax = Math.log10(maxHz);
-
         for (let i = 0; i < bufferLength; i++) {
             const hz = i * binHz;
             if (hz < minHz || hz > maxHz) continue;
             const db = dataArray[i];
             const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
-
             if (intensity > 0.05) {
-                const logVal = Math.log10(hz);
-                const normY = (logVal - logMin) / (logMax - logMin);
+                const normY = (Math.log10(hz) - logMin) / (logMax - logMin);
                 const y = sHeight - (normY * sHeight);
-                
                 const hue = (1.0 - intensity) * 240;
                 sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
                 sonogramCtx.fillRect(xPos, y - 1, sliceWidth, 2);
@@ -3609,44 +3147,33 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
     }
 
     const dotCenterX = xPos + (sliceWidth / 2);
-
     if (f0HzVal > 0) {
         const yF0 = getSonogramY(f0HzVal, sHeight, f0HzVal);
         if (yF0 >= 0 && yF0 <= sHeight) {
-            sonogramCtx.fillStyle = '#000000';
-            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
-            sonogramCtx.fillStyle = '#38bdf8';
-            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#000000'; sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#38bdf8'; sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yF0, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
         }
     }
-
     if (maxHzVal > 0) {
         const yMax = getSonogramY(maxHzVal, sHeight, f0HzVal);
         if (yMax >= 0 && yMax <= sHeight) {
-            sonogramCtx.fillStyle = '#000000';
-            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
-            sonogramCtx.fillStyle = '#ff3344';
-            sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#000000'; sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 2.2, 0, Math.PI * 2); sonogramCtx.fill();
+            sonogramCtx.fillStyle = '#ff3344'; sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, yMax, 1.2, 0, Math.PI * 2); sonogramCtx.fill();
         }
     }
 
     const labelAreaHeight = 14;
     const graphHeight = canvas.height - labelAreaHeight;
-    const leftMargin = 38;
-    const rightMargin = 38;
+    const leftMargin = 38, rightMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
 
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(sonogramCanvas, 0, 0, sWidth, sHeight, leftMargin, 0, graphWidth, graphHeight);
-
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, leftMargin, graphHeight);
     ctx.fillRect(canvas.width - rightMargin, 0, rightMargin, graphHeight);
 
-    ctx.font = '7px sans-serif';
-    ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
-
+    ctx.font = '7px sans-serif'; ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
     if (sonoAxisMode === 'harmonic') {
         [1, 5, 10, 15, 20, 24].forEach(n => {
             const y = graphHeight - (n * (graphHeight / 24));
@@ -3671,27 +3198,20 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
 
     ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
     ctx.fillRect(0, graphHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`ソノグラム [縦軸: ${sonoAxisMode.toUpperCase()} | ${Math.round(sonoTimeWindowSec)}秒幅]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold, dt) {
     if (!canvas.width || !canvas.height) return;
-
-    const sWidth = sonogramCanvas.width;
-    const sHeight = sonogramCanvas.height;
+    const sWidth = sonogramCanvas.width, sHeight = sonogramCanvas.height;
     const frameDt = dt || (1.0 / 60.0);
     const shiftPx = Math.max(1, (sWidth / sonoTimeWindowSec) * frameDt);
 
     sonogramCtx.drawImage(sonogramCanvas, shiftPx, 0, sWidth - shiftPx, sHeight, 0, 0, sWidth - shiftPx, sHeight);
-    sonogramCtx.fillStyle = '#000000';
-    sonogramCtx.fillRect(sWidth - shiftPx, 0, shiftPx, sHeight);
+    sonogramCtx.fillStyle = '#000000'; sonogramCtx.fillRect(sWidth - shiftPx, 0, shiftPx, sHeight);
 
-    const xPos = sWidth - shiftPx;
-    const sliceWidth = Math.ceil(shiftPx);
-
+    const xPos = sWidth - shiftPx, sliceWidth = Math.ceil(shiftPx);
     if (f0HzVal >= 80) {
         for (let n = 4; n <= 16; n++) {
             const targetHz = f0HzVal * n;
@@ -3700,14 +3220,11 @@ function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold, 
                 const db = dataArray[binIdx];
                 if (db > threshold) {
                     const intensity = Math.max(0, Math.min(1, (db + 100) / 70));
-                    const normY = (n - 4) / 12;
-                    const y = sHeight - (normY * sHeight);
+                    const y = sHeight - (((n - 4) / 12) * sHeight);
                     const dotCenterX = xPos + (sliceWidth / 2);
                     const hue = (1.0 - intensity) * 300;
                     sonogramCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-                    sonogramCtx.beginPath();
-                    sonogramCtx.arc(dotCenterX, y, 2.0 + intensity * 2, 0, Math.PI * 2);
-                    sonogramCtx.fill();
+                    sonogramCtx.beginPath(); sonogramCtx.arc(dotCenterX, y, 2.0 + intensity * 2, 0, Math.PI * 2); sonogramCtx.fill();
                 }
             }
         }
@@ -3715,23 +3232,18 @@ function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold, 
 
     const labelAreaHeight = 14;
     const graphHeight = canvas.height - labelAreaHeight;
-    const leftMargin = 38;
-    const rightMargin = 38;
+    const leftMargin = 38, rightMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
 
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(sonogramCanvas, 0, 0, sWidth, sHeight, leftMargin, 0, graphWidth, graphHeight);
-
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, leftMargin, graphHeight);
     ctx.fillRect(canvas.width - rightMargin, 0, rightMargin, graphHeight);
 
-    ctx.font = '7px sans-serif';
-    ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
+    ctx.font = '7px sans-serif'; ctx.fillStyle = 'rgba(240, 244, 248, 0.9)';
     [4, 8, 12, 16].forEach(n => {
-        const normY = (n - 4) / 12;
-        const y = graphHeight - (normY * graphHeight);
+        const y = graphHeight - (((n - 4) / 12) * graphHeight);
         ctx.textAlign = 'right'; ctx.fillText(`${n}n`, leftMargin - 4, y + 2.5);
         ctx.textAlign = 'left'; ctx.fillText(`${n}n`, canvas.width - rightMargin + 4, y + 2.5);
         ctx.strokeStyle = 'rgba(255,255,255,0.12)';
@@ -3740,29 +3252,19 @@ function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold, 
 
     ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
     ctx.fillRect(0, graphHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#a855f7';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = '#a855f7'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`ソノグラム [トレーサーモード: 高次倍音分離 | ${Math.round(sonoTimeWindowSec)}秒幅]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 14;
-    const leftMargin = 62;   
-    const rightMargin = 20;  
-    const topMargin = 14;    
-    const bottomMargin = 38; 
-    
+    const labelAreaHeight = 14, leftMargin = 62, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
 
-    const f1Min = 200, f1Max = 900;   
-    const f2Min = 600, f2Max = 2600;  
-
+    const f1Min = 200, f1Max = 900, f2Min = 600, f2Max = 2600;
     const vowelZones = [
         { label: '/i/', f1: 300, f2: 2300, color: 'rgba(56, 189, 248, 0.32)' },
         { label: '/u/', f1: 350, f2: 950,  color: 'rgba(10, 185, 129, 0.32)' },
@@ -3774,26 +3276,18 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
     vowelZones.forEach(v => {
         const vx = leftMargin + ((v.f1 - f1Min) / (f1Max - f1Min)) * graphWidth;
         const vy = topMargin + graphHeight - ((v.f2 - f2Min) / (f2Max - f2Min)) * graphHeight;
-        
-        ctx.fillStyle = v.color;
-        ctx.beginPath(); ctx.arc(vx, vy, 22, 0, Math.PI * 2); ctx.fill();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-        ctx.font = 'bold 9px sans-serif';
-        ctx.textAlign = 'center';
+        ctx.fillStyle = v.color; ctx.beginPath(); ctx.arc(vx, vy, 22, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(v.label, vx, vy + 3);
     });
 
-    ctx.strokeStyle = 'rgba(168, 85, 247, 0.22)';
-    ctx.lineWidth = 1;
-
+    ctx.strokeStyle = 'rgba(168, 85, 247, 0.22)'; ctx.lineWidth = 1;
     [300, 450, 600, 750].forEach(f1 => {
         const x = leftMargin + ((f1 - f1Min) / (f1Max - f1Min)) * graphWidth;
         ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
         ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(`${f1}Hz`, x, topMargin + graphHeight + 11);
     });
-
     [1000, 1500, 2000].forEach(f2 => {
         const y = topMargin + graphHeight - ((f2 - f2Min) / (f2Max - f2Min)) * graphHeight;
         ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
@@ -3801,51 +3295,26 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
         ctx.fillText(`${f2}Hz`, leftMargin - 4, y + 3);
     });
 
-    // 縦軸名 (F2 [Hz]) と方向表現
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#38bdf8';
-    ctx.textAlign = 'left';
-    ctx.fillText("↑舌が前", 3, topMargin + 8);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText("F2 [Hz]", 3, topMargin + graphHeight / 2 + 2);
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText("↓舌が後", 3, topMargin + graphHeight - 2);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'left'; ctx.fillText("↑舌が前", 3, topMargin + 8);
+    ctx.fillStyle = '#e2e8f0'; ctx.fillText("F2 [Hz]", 3, topMargin + graphHeight / 2 + 2);
+    ctx.fillStyle = '#38bdf8'; ctx.fillText("↓舌が後", 3, topMargin + graphHeight - 2);
 
-    // 横軸名 (F1 [Hz]) と方向表現
     const xGuideY = topMargin + graphHeight + 21;
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#38bdf8';
-    ctx.textAlign = 'left';
-    ctx.fillText("顎低い(口小さい)←", leftMargin, xGuideY);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'center';
-    ctx.fillText("F1 [Hz]", leftMargin + graphWidth / 2, xGuideY);
-    ctx.fillStyle = '#38bdf8';
-    ctx.textAlign = 'right';
-    ctx.fillText("→顎高い(口大きい)", leftMargin + graphWidth, xGuideY);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'left'; ctx.fillText("顎低い(口小さい)←", leftMargin, xGuideY);
+    ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center'; ctx.fillText("F1 [Hz]", leftMargin + graphWidth / 2, xGuideY);
+    ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'right'; ctx.fillText("→顎高い(口大きい)", leftMargin + graphWidth, xGuideY);
 
-    let rawF1 = 0, rawF2 = 0;
-    let maxF1Db = -999, maxF2Db = -999;
-
+    let rawF1 = 0, rawF2 = 0, maxF1Db = -999, maxF2Db = -999;
     for (let i = 0; i < bufferLength; i++) {
-        const hz = i * binHz;
-        const db = dataArray[i];
+        const hz = i * binHz, db = dataArray[i];
         if (db < threshold) continue;
-
-        if (hz >= f1Min && hz <= f1Max && db > maxF1Db) {
-            maxF1Db = db;
-            rawF1 = hz;
-        }
-        if (hz >= f2Min && hz <= f2Max && db > maxF2Db) {
-            maxF2Db = db;
-            rawF2 = hz;
-        }
+        if (hz >= f1Min && hz <= f1Max && db > maxF1Db) { maxF1Db = db; rawF1 = hz; }
+        if (hz >= f2Min && hz <= f2Max && db > maxF2Db) { maxF2Db = db; rawF2 = hz; }
     }
 
     if (rawF1 > 0 && rawF2 > 0) {
         smoothedF1 = smoothedF1 * 0.75 + rawF1 * 0.25;
         smoothedF2 = smoothedF2 * 0.75 + rawF2 * 0.25;
-
         const plotX = leftMargin + ((smoothedF1 - f1Min) / (f1Max - f1Min)) * graphWidth;
         const plotY = topMargin + graphHeight - ((smoothedF2 - f2Min) / (f2Max - f2Min)) * graphHeight;
 
@@ -3854,126 +3323,72 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
 
         for (let i = 0; i < formantHistory.length; i++) {
             const pt = formantHistory[i];
-            const alpha = (i + 1) / formantHistory.length * 0.4;
-            ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+            ctx.fillStyle = `rgba(168, 85, 247, ${(i + 1) / formantHistory.length * 0.4})`;
             ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
         }
-
-        ctx.fillStyle = '#000000';
-        ctx.beginPath(); ctx.arc(plotX, plotY, 6.5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#a855f7';
-        ctx.beginPath(); ctx.arc(plotX, plotY, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.arc(plotX, plotY, 6.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#a855f7'; ctx.beginPath(); ctx.arc(plotX, plotY, 4, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#ffffff'; ctx.stroke();
-
-        ctx.fillStyle = '#38bdf8';
-        ctx.font = 'bold 8px sans-serif';
-        ctx.textAlign = 'left';
+        ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'left';
         ctx.fillText(` [F1:${Math.round(smoothedF1)}Hz, F2:${Math.round(smoothedF2)}Hz]`, plotX + 9, plotY + 3);
-    } else {
-        if (formantHistory.length > 0) formantHistory.shift();
-    }
+    } else if (formantHistory.length > 0) formantHistory.shift();
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#a855f7';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#a855f7'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`4-1. フォルマント [横軸: F1 [Hz] | 縦軸: F2 [Hz] | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 14;
-    const leftMargin = 66;   
-    const rightMargin = 20;  
-    const topMargin = 14;    
-    const bottomMargin = 38; 
-    
+    const labelAreaHeight = 14, leftMargin = 66, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
-
-    const xMin = -35, xMax = 5;
-    const yMin = 0, yMax = 40;
+    const xMin = -35, xMax = 5, yMin = 0, yMax = 40;
 
     ctx.fillStyle = 'rgba(234, 179, 8, 0.15)';
     const goldX = leftMargin + ((-15 - xMin) / (xMax - xMin)) * graphWidth;
     const goldY = topMargin + graphHeight - ((15 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(goldX, topMargin, leftMargin + graphWidth - goldX, goldY - topMargin);
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'right';
     ctx.fillText("★ 民謡・音頭の理想の抜けゾーン (芯＋高域キレ)", leftMargin + graphWidth - 6, topMargin + 12);
 
-    ctx.strokeStyle = 'rgba(234, 179, 8, 0.25)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.25)'; ctx.lineWidth = 1;
     [-25, -15, -5].forEach(tilt => {
         const x = leftMargin + ((tilt - xMin) / (xMax - xMin)) * graphWidth;
         ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(`${tilt}dB`, x, topMargin + graphHeight + 11);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${tilt}dB`, x, topMargin + graphHeight + 11);
     });
-
     [10, 20, 30].forEach(rich => {
         const y = topMargin + graphHeight - ((rich - yMin) / (yMax - yMin)) * graphHeight;
         ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(`${rich}%`, leftMargin - 4, y + 3);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${rich}%`, leftMargin - 4, y + 3);
     });
 
-    // 縦軸名 (高次倍音比率[%]) と方向表現
-    ctx.font = 'bold 6.5px sans-serif';
-    ctx.fillStyle = '#eab308';
-    ctx.textAlign = 'left';
-    ctx.fillText("↑キレがある声", 2, topMargin + 8);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText("高次倍音比率[%]", 2, topMargin + graphHeight / 2 + 2);
-    ctx.fillStyle = '#eab308';
-    ctx.fillText("↓まろやかな声", 2, topMargin + graphHeight - 2);
+    ctx.font = 'bold 6.5px sans-serif'; ctx.fillStyle = '#eab308'; ctx.textAlign = 'left'; ctx.fillText("↑キレがある声", 2, topMargin + 8);
+    ctx.fillStyle = '#e2e8f0'; ctx.fillText("高次倍音比率[%]", 2, topMargin + graphHeight / 2 + 2);
+    ctx.fillStyle = '#eab308'; ctx.fillText("↓まろやかな声", 2, topMargin + graphHeight - 2);
 
-    // 横軸名 (高域dB － 低域dB [dB]) と方向表現
     const xGuideY = topMargin + graphHeight + 21;
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#eab308';
-    ctx.textAlign = 'left';
-    ctx.fillText("こもった声←", leftMargin, xGuideY);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'center';
-    ctx.fillText("高域dB － 低域dB [dB]", leftMargin + graphWidth / 2, xGuideY);
-    ctx.fillStyle = '#eab308';
-    ctx.textAlign = 'right';
-    ctx.fillText("→明るい声", leftMargin + graphWidth, xGuideY);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#eab308'; ctx.textAlign = 'left'; ctx.fillText("こもった声←", leftMargin, xGuideY);
+    ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center'; ctx.fillText("高域dB － 低域dB [dB]", leftMargin + graphWidth / 2, xGuideY);
+    ctx.fillStyle = '#eab308'; ctx.textAlign = 'right'; ctx.fillText("→明るい声", leftMargin + graphWidth, xGuideY);
 
-    let lowSumDb = 0, lowCount = 0;
-    let highSumDb = 0, highCount = 0;
-    let totalPower = 0, highPower = 0;
-
+    let lowSumDb = 0, lowCount = 0, highSumDb = 0, highCount = 0, totalPower = 0, highPower = 0;
     for (let i = 0; i < bufferLength; i++) {
-        const hz = i * binHz;
-        const db = dataArray[i];
+        const hz = i * binHz, db = dataArray[i];
         if (db < threshold) continue;
-
         const power = Math.pow(10, db / 10);
         totalPower += power;
-
-        if (hz >= 100 && hz <= 600) {
-            lowSumDb += db; lowCount++;
-        }
-        if (hz >= 2000 && hz <= 5000) {
-            highSumDb += db; highCount++;
-        }
-        if (hz >= 3000 && hz <= 6000) {
-            highPower += power;
-        }
+        if (hz >= 100 && hz <= 600) { lowSumDb += db; lowCount++; }
+        if (hz >= 2000 && hz <= 5000) { highSumDb += db; highCount++; }
+        if (hz >= 3000 && hz <= 6000) { highPower += power; }
     }
 
-    const avgLowDb = lowCount > 0 ? lowSumDb / lowCount : -80;
-    const avgHighDb = highCount > 0 ? highSumDb / highCount : -90;
-    const rawTilt = avgHighDb - avgLowDb;
-    const rawRichness = totalPower > 0 ? (highPower / totalPower) * 100 : 0;
+    const rawTilt = highCount > 0 ? (highSumDb / highCount) - (lowCount > 0 ? lowSumDb / lowCount : -80) : -15;
+    const rawRichness = totalPower > 0 ? (highPower / totalPower) * 100 : 20;
 
     if (lowCount > 0 && highCount > 0) {
         smoothedTilt = smoothedTilt * 0.8 + rawTilt * 0.2;
@@ -3988,44 +3403,29 @@ function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
 
     for (let i = 0; i < tiltRichnessHistory.length; i++) {
         const pt = tiltRichnessHistory[i];
-        const alpha = (i + 1) / tiltRichnessHistory.length * 0.45;
-        ctx.fillStyle = `rgba(234, 179, 8, ${alpha})`;
+        ctx.fillStyle = `rgba(234, 179, 8, ${(i + 1) / tiltRichnessHistory.length * 0.45})`;
         ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
     }
-
-    ctx.fillStyle = '#000000';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#eab308';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#eab308'; ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.stroke();
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'left';
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(` [傾斜:${Math.round(smoothedTilt)}dB, 高次比:${Math.round(smoothedRichness)}%]`, plotX + 9, plotY + 3);
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#eab308';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#eab308'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`4-2. 倍音・抜け [横軸: 高域dB－低域dB [dB] | 縦軸: 高次倍音比率[%] | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawModulationMap() {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 14;
-    const leftMargin = 62, rightMargin = 20, topMargin = 14, bottomMargin = 38;
+    const labelAreaHeight = 14, leftMargin = 62, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
+    const xMin = 0, xMax = 10, yMin = 0, yMax = 12;
 
-    const xMin = 0, xMax = 10;   
-    const yMin = 0, yMax = 12;   
-
-    // 中央の水色領域（こぶし・ビブラート適正ゾーン）
     ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
     let gX1 = leftMargin + ((2.5 - xMin) / (xMax - xMin)) * graphWidth;
     let gX2 = leftMargin + ((7.0 - xMin) / (xMax - xMin)) * graphWidth;
@@ -4033,17 +3433,12 @@ function drawModulationMap() {
     let gY2 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(gX1, gY1, gX2 - gX1, gY2 - gY1);
 
-    // 下部の緑色領域（ストレート音域）
     ctx.fillStyle = 'rgba(10, 185, 129, 0.12)';
     let sY1 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(leftMargin, sY1, graphWidth, topMargin + graphHeight - sY1);
 
-    // 各領域の直近にラベル配置
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(125, 211, 252, 0.85)';
+    ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(125, 211, 252, 0.85)';
     ctx.fillText("★こぶし・ビブラート適正ゾーン", (gX1 + gX2) / 2, gY1 + 12);
-
     ctx.fillStyle = 'rgba(110, 231, 183, 0.85)';
     ctx.fillText("■ ストレート音域", leftMargin + graphWidth * 0.5, sY1 + (topMargin + graphHeight - sY1) * 0.65);
 
@@ -4051,57 +3446,31 @@ function drawModulationMap() {
     [2, 4, 6, 8].forEach(rate => {
         const x = leftMargin + ((rate - xMin) / (xMax - xMin)) * graphWidth;
         ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(`${rate}Hz`, x, topMargin + graphHeight + 11);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${rate}Hz`, x, topMargin + graphHeight + 11);
     });
-
     [3, 6, 9].forEach(depth => {
         const y = topMargin + graphHeight - ((depth - yMin) / (yMax - yMin)) * graphHeight;
         ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(`${depth}dB`, leftMargin - 4, y + 3);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${depth}dB`, leftMargin - 4, y + 3);
     });
 
-    // 縦軸名 (うなり [dB])
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'left';
-    ctx.fillText("うなり [dB]", 3, topMargin + graphHeight / 2 + 2);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'left'; ctx.fillText("うなり [dB]", 3, topMargin + graphHeight / 2 + 2);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center'; ctx.fillText("ゆらぎ [Hz]", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
 
-    // 横軸名 (ゆらぎ [Hz])
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'center';
-    ctx.fillText("ゆらぎ [Hz]", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
-
-    let measuredRate = 0.0;
-    let measuredDepth = 0.0;
-
+    let measuredRate = 0.0, measuredDepth = 0.0;
     if (pitchHistoryBuffer.length >= 10) {
-        let minF0 = 99999, maxF0 = 0;
-        let sumF0 = 0;
-        let zeroCrossings = 0;
-
+        let minF0 = 99999, maxF0 = 0, sumF0 = 0, zeroCrossings = 0;
         for (let i = 0; i < pitchHistoryBuffer.length; i++) {
             const f0 = pitchHistoryBuffer[i].f0;
-            sumF0 += f0;
-            if (f0 < minF0) minF0 = f0;
-            if (f0 > maxF0) maxF0 = f0;
+            sumF0 += f0; if (f0 < minF0) minF0 = f0; if (f0 > maxF0) maxF0 = f0;
         }
         const meanF0 = sumF0 / pitchHistoryBuffer.length;
-
-        const f0Diff = maxF0 - minF0;
-        measuredDepth = Math.min(12.0, (f0Diff / meanF0) * 45.0);
-
+        measuredDepth = Math.min(12.0, ((maxF0 - minF0) / meanF0) * 45.0);
         for (let i = 1; i < pitchHistoryBuffer.length; i++) {
-            if ((pitchHistoryBuffer[i-1].f0 - meanF0) * (pitchHistoryBuffer[i].f0 - meanF0) < 0) {
-                zeroCrossings++;
-            }
+            if ((pitchHistoryBuffer[i-1].f0 - meanF0) * (pitchHistoryBuffer[i].f0 - meanF0) < 0) zeroCrossings++;
         }
         const timeSpanSec = (pitchHistoryBuffer[pitchHistoryBuffer.length - 1].time - pitchHistoryBuffer[0].time) * 0.001;
-        if (timeSpanSec > 0.05) {
-            measuredRate = Math.min(10.0, (zeroCrossings / 2.0) / timeSpanSec);
-        }
+        if (timeSpanSec > 0.05) measuredRate = Math.min(10.0, (zeroCrossings / 2.0) / timeSpanSec);
     }
 
     const plotX = leftMargin + Math.max(0, Math.min(1, (measuredRate - xMin) / (xMax - xMin))) * graphWidth;
@@ -4112,134 +3481,77 @@ function drawModulationMap() {
 
     for (let i = 0; i < modHistory.length; i++) {
         const pt = modHistory[i];
-        const alpha = (i + 1) / modHistory.length * 0.45;
-        ctx.fillStyle = `rgba(56, 189, 248, ${alpha})`;
+        ctx.fillStyle = `rgba(56, 189, 248, ${(i + 1) / modHistory.length * 0.45})`;
         ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
     }
-
-    ctx.fillStyle = '#000000';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#38bdf8';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.stroke();
-
-    ctx.fillStyle = '#eab308';
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'left';
+    ctx.fillStyle = '#eab308'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(` [実測ゆらぎ:${measuredRate.toFixed(1)}Hz, うなり:${measuredDepth.toFixed(1)}dB]`, plotX + 9, plotY + 3);
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#38bdf8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`4-3. 揺らぎ・うねり [横軸: ゆらぎ [Hz] | 縦軸: うなり [dB] | 本物のこぶし・ビブラート解析]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 14;
-    const leftMargin = 66, rightMargin = 20, topMargin = 14, bottomMargin = 38;
+    const labelAreaHeight = 14, leftMargin = 66, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
+    const xMin = 0, xMax = 1.0, yMin = 0, yMax = 1.0;
 
-    const xMin = 0, xMax = 1.0;
-    const yMin = 0, yMax = 1.0;
-
-    // 左上の緑色領域（レーザー直進・芯強調ゾーン）
     ctx.fillStyle = 'rgba(10, 185, 129, 0.14)';
-    let lX1 = leftMargin;
-    let lX2 = leftMargin + ((0.4 - xMin) / (xMax - xMin)) * graphWidth;
+    let lX1 = leftMargin, lX2 = leftMargin + ((0.4 - xMin) / (xMax - xMin)) * graphWidth;
     let lY1 = topMargin + graphHeight - ((1.0 - yMin) / (yMax - yMin)) * graphHeight;
     let lY2 = topMargin + graphHeight - ((0.6 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(lX1, lY1, lX2 - lX1, lY2 - lY1);
 
-    // 右側の水色領域（空間拡散・響ゾーン）
     ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
-    let dX1 = leftMargin + ((0.5 - xMin) / (xMax - xMin)) * graphWidth;
-    let dX2 = leftMargin + graphWidth;
+    let dX1 = leftMargin + ((0.5 - xMin) / (xMax - xMin)) * graphWidth, dX2 = leftMargin + graphWidth;
     ctx.fillRect(dX1, topMargin, dX2 - dX1, graphHeight);
 
     ctx.strokeStyle = 'rgba(10, 185, 129, 0.25)';
     [0.2, 0.4, 0.6, 0.8].forEach(sp => {
         const x = leftMargin + ((sp - xMin) / (xMax - xMin)) * graphWidth;
         ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(`${sp.toFixed(1)}`, x, topMargin + graphHeight + 11);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${sp.toFixed(1)}`, x, topMargin + graphHeight + 11);
     });
-
     [0.25, 0.5, 0.75].forEach(cn => {
         const y = topMargin + graphHeight - ((cn - yMin) / (yMax - yMin)) * graphHeight;
         ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + graphWidth, y); ctx.stroke();
-        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(`${cn.toFixed(2)}`, leftMargin - 4, y + 3);
+        ctx.fillStyle = '#94a3b8'; ctx.font = '7px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${cn.toFixed(2)}`, leftMargin - 4, y + 3);
     });
 
-    // 各ゾーン直近ラベルの配置
-    ctx.font = 'bold 7.5px sans-serif';
-    ctx.fillStyle = 'rgba(110, 231, 183, 0.9)';
-    ctx.textAlign = 'left';
+    ctx.font = 'bold 7.5px sans-serif'; ctx.fillStyle = 'rgba(110, 231, 183, 0.9)'; ctx.textAlign = 'left';
     ctx.fillText("★ レーザー直進・芯強調ゾーン", lX1 + 4, lY1 + 10);
-
-    ctx.fillStyle = 'rgba(125, 211, 252, 0.9)';
-    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.9)'; ctx.textAlign = 'right';
     ctx.fillText("■ 空間拡散・響ゾーン", dX2 - 4, topMargin + 10);
 
-    // 4つの発声特徴ラベルの配置（グラフ上で邪魔にならないよう背景透過・控えめな明度で各エリアに配置）
     ctx.font = '6.5px sans-serif';
-    // ③ 音頭取りのチャント・鋭いトワング発声（遠達ボイス）【左上】
-    ctx.fillStyle = 'rgba(167, 243, 208, 0.72)';
-    ctx.textAlign = 'left';
-    ctx.fillText("③ 音頭チャント・鋭いトワング(遠達)", lX1 + 4, lY1 + 21);
+    ctx.fillStyle = 'rgba(167, 243, 208, 0.72)'; ctx.textAlign = 'left'; ctx.fillText("③ 音頭チャント・鋭いトワング(遠達)", lX1 + 4, lY1 + 21);
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.72)'; ctx.textAlign = 'center'; ctx.fillText("② クラシック・オペラ発声(豊母音/Phar)", leftMargin + graphWidth * 0.65, topMargin + graphHeight * 0.52);
+    ctx.fillStyle = 'rgba(253, 186, 116, 0.72)'; ctx.textAlign = 'left'; ctx.fillText("④ 喉絞り雑音・潰れた声(力み)", leftMargin + 4, topMargin + graphHeight - 6);
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.72)'; ctx.textAlign = 'right'; ctx.fillText("① ウィスパーボイス(息もれ/ささやき)", dX2 - 4, topMargin + graphHeight - 6);
 
-    // ② クラシック的なオペラ発声（豊かな母音・ファリンジャル傾向）【中央〜やや右寄り・中段】
-    ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
-    ctx.textAlign = 'center';
-    ctx.fillText("② クラシック・オペラ発声(豊母音/Phar)", leftMargin + graphWidth * 0.65, topMargin + graphHeight * 0.52);
+    ctx.font = 'bold 6.5px sans-serif'; ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'left'; ctx.fillText("エネルギー集中度", 2, topMargin + graphHeight / 2 + 2);
+    ctx.font = 'bold 7px sans-serif'; ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center'; ctx.fillText("帯域分散度", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
 
-    // ④ 喉を絞りすぎた雑音・潰れた声（力みすぎた発声）【左下〜中央下】
-    ctx.fillStyle = 'rgba(253, 186, 116, 0.72)';
-    ctx.textAlign = 'left';
-    ctx.fillText("④ 喉絞り雑音・潰れた声(力み)", leftMargin + 4, topMargin + graphHeight - 6);
-
-    // ① ウィスパーボイス（息もれ声・ささやき声）【右下】
-    ctx.fillStyle = 'rgba(203, 213, 225, 0.72)';
-    ctx.textAlign = 'right';
-    ctx.fillText("① ウィスパーボイス(息もれ/ささやき)", dX2 - 4, topMargin + graphHeight - 6);
-
-    // 縦軸名 (エネルギー集中度)
-    ctx.font = 'bold 6.5px sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'left';
-    ctx.fillText("エネルギー集中度", 2, topMargin + graphHeight / 2 + 2);
-
-    // 横軸名 (帯域分散度)
-    ctx.font = 'bold 7px sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.textAlign = 'center';
-    ctx.fillText("帯域分散度", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
-
-    let totalP = 0, peakP = 0, weightedVar = 0, centroid = 0;
-
+    let totalP = 0, peakP = 0, centroid = 0;
     for (let i = 0; i < bufferLength; i++) {
-        const hz = i * binHz;
-        const db = dataArray[i];
+        const hz = i * binHz, db = dataArray[i];
         if (db < threshold || hz > 6000) continue;
         const p = Math.pow(10, db / 10);
-        totalP += p;
-        if (p > peakP) peakP = p;
-        centroid += hz * p;
+        totalP += p; if (p > peakP) peakP = p; centroid += hz * p;
     }
-
     centroid = totalP > 0 ? centroid / totalP : 1000;
 
     let varianceSum = 0;
     for (let i = 0; i < bufferLength; i++) {
-        const hz = i * binHz;
-        const db = dataArray[i];
+        const hz = i * binHz, db = dataArray[i];
         if (db < threshold || hz > 6000) continue;
         const p = Math.pow(10, db / 10);
         varianceSum += Math.pow(hz - centroid, 2) * p;
@@ -4255,100 +3567,59 @@ function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
 
     for (let i = 0; i < spreadConcHistory.length; i++) {
         const pt = spreadConcHistory[i];
-        const alpha = (i + 1) / spreadConcHistory.length * 0.45;
-        ctx.fillStyle = `rgba(10, 185, 129, ${alpha})`;
+        ctx.fillStyle = `rgba(10, 185, 129, ${(i + 1) / spreadConcHistory.length * 0.45})`;
         ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
     }
-
-    ctx.fillStyle = '#000000';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#10b981';
-    ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.arc(plotX, plotY, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(plotX, plotY, 4.5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.stroke();
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'left';
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(` [分散:${spreadVal.toFixed(2)}, 集中:${concentrationVal.toFixed(2)}]`, plotX + 9, plotY + 3);
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#10b981';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#10b981'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`4-4. 音色の拡散・収束 [横軸: 帯域分散度 | 縦軸: エネルギー集中度 | 空間拡散 vs レーザー直進]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawHarmonicClarityAnalyzer(dataArray, bufferLength, binHz, f0Val, threshold, currentOverallHnr) {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const topMargin = 42;
-    const labelAreaHeight = 16;
+    const topMargin = 42, labelAreaHeight = 16;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
 
-    // 1行目：タイトル（重なり防止のため独立行に配置）
-    ctx.font = 'bold 9.5px sans-serif';
-    ctx.fillStyle = '#10b981';
-    ctx.textAlign = 'left';
+    ctx.font = 'bold 9.5px sans-serif'; ctx.fillStyle = '#10b981'; ctx.textAlign = 'left';
     ctx.fillText(`【5. 倍音純度・クリアネス (HNR) [合格基準: 85%以上]】`, 10, 12);
 
-    // 2行目（少し下）：「総合スコア」四角囲み小窓 ＋ その右側に目標域・ステータス表示
     const scoreColor = currentOverallHnr >= 85 ? '#10b981' : (currentOverallHnr >= 70 ? '#eab308' : '#38bdf8');
-    const boxX = 10;
-    const boxY = 17;
-    const boxW = 94;
-    const boxH = 21;
+    const boxX = 10, boxY = 17, boxW = 94, boxH = 21;
 
-    ctx.fillStyle = 'rgba(21, 28, 44, 0.95)';
-    ctx.strokeStyle = scoreColor;
-    ctx.lineWidth = 1.5;
-    ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.strokeRect(boxX, boxY, boxW, boxH);
+    ctx.fillStyle = 'rgba(21, 28, 44, 0.95)'; ctx.strokeStyle = scoreColor; ctx.lineWidth = 1.5;
+    ctx.fillRect(boxX, boxY, boxW, boxH); ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-    ctx.font = 'bold 7.5px sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'left';
-    ctx.fillText("総合スコア", boxX + 5, boxY + 13);
+    ctx.font = 'bold 7.5px sans-serif'; ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'left'; ctx.fillText("総合スコア", boxX + 5, boxY + 13);
+    ctx.font = '900 14px sans-serif'; ctx.fillStyle = scoreColor; ctx.textAlign = 'right'; ctx.fillText(`${currentOverallHnr}%`, boxX + boxW - 5, boxY + 15);
 
-    ctx.font = '900 14px sans-serif';
-    ctx.fillStyle = scoreColor;
-    ctx.textAlign = 'right';
-    ctx.fillText(`${currentOverallHnr}%`, boxX + boxW - 5, boxY + 15);
-
-    // 小窓のすぐ右側に目標域・合格ステータスを配置
-    ctx.font = 'bold 8.5px sans-serif';
-    ctx.fillStyle = currentOverallHnr >= 85 ? '#34d399' : '#cbd5e1';
-    ctx.textAlign = 'left';
+    ctx.font = 'bold 8.5px sans-serif'; ctx.fillStyle = currentOverallHnr >= 85 ? '#34d399' : '#cbd5e1'; ctx.textAlign = 'left';
     ctx.fillText(currentOverallHnr >= 85 ? "★ 合格 (PASS 85%以上)" : "目標域: 70〜84% (要改善<70%)", boxX + boxW + 8, boxY + 14);
 
     const effectiveF0 = (f0Val >= 60 && f0Val <= 600) ? f0Val : 150;
-    const maxHarmonics = 16;
-    const colWidth = (canvas.width - 50) / maxHarmonics;
+    const maxHarmonics = 16, colWidth = (canvas.width - 50) / maxHarmonics;
 
     for (let n = 1; n <= maxHarmonics; n++) {
         const targetHz = effectiveF0 * n;
         const binIdx = Math.round(targetHz / binHz);
-        
-        let harmonicPeakDb = -120;
-        let neighboringNoiseDb = -120;
+        let harmonicPeakDb = -120, neighboringNoiseDb = -120;
 
         if (binIdx >= 0 && binIdx < bufferLength) {
             harmonicPeakDb = dataArray[binIdx];
-            let noiseSum = 0;
-            let noiseCount = 0;
+            let noiseSum = 0, noiseCount = 0;
             for (let offset = -3; offset <= 3; offset++) {
                 if (offset === 0) continue;
                 const nBin = binIdx + offset;
-                if (nBin >= 0 && nBin < bufferLength) {
-                    noiseSum += Math.pow(10, dataArray[nBin] / 10);
-                    noiseCount++;
-                }
+                if (nBin >= 0 && nBin < bufferLength) { noiseSum += Math.pow(10, dataArray[nBin] / 10); noiseCount++; }
             }
-            if (noiseCount > 0) {
-                neighboringNoiseDb = 10 * Math.log10(noiseSum / noiseCount);
-            }
+            if (noiseCount > 0) neighboringNoiseDb = 10 * Math.log10(noiseSum / noiseCount);
         }
 
         const hPower = Math.pow(10, Math.max(0, harmonicPeakDb + 120) / 10);
@@ -4362,74 +3633,52 @@ function drawHarmonicClarityAnalyzer(dataArray, bufferLength, binHz, f0Val, thre
         ctx.fillStyle = n === 1 ? COLOR_F0 : (hnrLocal >= 85 ? '#10b981' : '#f43f5e');
         ctx.fillRect(x + 3, y, colWidth - 6, h);
 
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '7px sans-serif';
-        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffffff'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(`${Math.round(hnrLocal)}%`, x + colWidth / 2, y - 4);
         ctx.fillText(`${n}n`, x + colWidth / 2, canvas.height - labelAreaHeight - 4);
     }
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#10b981';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#10b981'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`倍音純度・クリアネス (HNR) 解析 [合格基準: 85%以上]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawEnergyGravityMonitor(dataArray, bufferLength, binHz, threshold, weights) {
     if (!canvas.width || !canvas.height) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const topMargin = 22;
-    const labelAreaHeight = 16;
+    const topMargin = 22, labelAreaHeight = 16;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
 
-    let weightedSumFreqPower = 0;
-    let totalPower = 0;
-
-    const minHz = 100, maxHz = 6000;
-    const barsCount = 30;
-    const barWidth = (canvas.width - 60) / barsCount;
-    const binRange = (maxHz - minHz) / barsCount;
+    let weightedSumFreqPower = 0, totalPower = 0;
+    const minHz = 100, maxHz = 6000, barsCount = 30;
+    const barWidth = (canvas.width - 60) / barsCount, binRange = (maxHz - minHz) / barsCount;
 
     for (let i = 0; i < bufferLength; i++) {
         const hz = i * binHz;
         if (hz < minHz || hz > maxHz) continue;
         const db = dataArray[i];
         if (db < threshold) continue;
-
-        let power = Math.pow(10, db / 10);
-        weightedSumFreqPower += hz * power;
-        totalPower += power;
+        const power = Math.pow(10, db / 10);
+        weightedSumFreqPower += hz * power; totalPower += power;
     }
-
     const spectralCentroid = totalPower > 0 ? weightedSumFreqPower / totalPower : 1000;
 
     const idealX1 = 30 + ((1500 - minHz) / (maxHz - minHz)) * (canvas.width - 60);
     const idealX2 = 30 + ((3000 - minHz) / (maxHz - minHz)) * (canvas.width - 60);
-    ctx.fillStyle = 'rgba(234, 179, 8, 0.12)';
-    ctx.fillRect(idealX1, topMargin, idealX2 - idealX1, graphHeight);
+    ctx.fillStyle = 'rgba(234, 179, 8, 0.12)'; ctx.fillRect(idealX1, topMargin, idealX2 - idealX1, graphHeight);
 
     for (let b = 0; b < barsCount; b++) {
-        const startHz = minHz + b * binRange;
-        const endHz = startHz + binRange;
-        
-        let bandPowerSum = 0;
-        let count = 0;
+        const startHz = minHz + b * binRange, endHz = startHz + binRange;
+        let bandPowerSum = 0, count = 0;
         for (let i = 0; i < bufferLength; i++) {
             const hz = i * binHz;
-            if (hz >= startHz && hz < endHz) {
-                bandPowerSum += Math.pow(10, dataArray[i] / 10);
-                count++;
-            }
+            if (hz >= startHz && hz < endHz) { bandPowerSum += Math.pow(10, dataArray[i] / 10); count++; }
         }
         const avgPower = count > 0 ? bandPowerSum / count : 0;
         const pseudoDb = avgPower > 0 ? 10 * Math.log10(avgPower) : -120;
         const h = (Math.max(0, pseudoDb + 120) / 100) * (graphHeight * 0.7);
-        const x = 30 + b * barWidth;
-        const y = topMargin + graphHeight - h;
+        const x = 30 + b * barWidth, y = topMargin + graphHeight - h;
 
         ctx.fillStyle = startHz <= spectralCentroid && endHz > spectralCentroid ? '#eab308' : 'rgba(2, 132, 199, 0.6)';
         ctx.fillRect(x + 1, y, barWidth - 2, h);
@@ -4437,45 +3686,24 @@ function drawEnergyGravityMonitor(dataArray, bufferLength, binHz, threshold, wei
 
     const centroidNorm = Math.max(0, Math.min(1, (spectralCentroid - minHz) / (maxHz - minHz)));
     const centroidX = 30 + centroidNorm * (canvas.width - 60);
-
-    ctx.strokeStyle = '#eab308';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centroidX, topMargin);
-    ctx.lineTo(centroidX, topMargin + graphHeight);
-    ctx.stroke();
+    ctx.strokeStyle = '#eab308'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(centroidX, topMargin); ctx.lineTo(centroidX, topMargin + graphHeight); ctx.stroke();
 
     const hzMarkers = [100, 1000, 2000, 3000, 4000, 5000, 6000];
-    ctx.font = '7px sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'center';
+    ctx.font = '7px sans-serif'; ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'center';
     hzMarkers.forEach(hz => {
-        const norm = (hz - minHz) / (maxHz - minHz);
-        const mx = 30 + norm * (canvas.width - 60);
+        const mx = 30 + ((hz - minHz) / (maxHz - minHz)) * (canvas.width - 60);
         ctx.fillText(hz >= 1000 ? `${hz/1000}k` : `${hz}`, mx, topMargin + graphHeight - 2);
     });
 
-    const hudWidth = 145;
-    const hudHeight = 26;
-    const hudX = canvas.width - hudWidth - 5;
-    const hudY = topMargin + 2;
-
-    ctx.fillStyle = 'rgba(21, 28, 44, 0.9)';
-    ctx.strokeStyle = '#eab308';
-    ctx.lineWidth = 1.5;
-    ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
-    ctx.strokeRect(hudX, hudY, hudWidth, hudHeight);
-
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillStyle = '#eab308';
-    ctx.textAlign = 'center';
+    const hudWidth = 145, hudHeight = 26, hudX = canvas.width - hudWidth - 5, hudY = topMargin + 2;
+    ctx.fillStyle = 'rgba(21, 28, 44, 0.9)'; ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1.5;
+    ctx.fillRect(hudX, hudY, hudWidth, hudHeight); ctx.strokeRect(hudX, hudY, hudWidth, hudHeight);
+    ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = '#eab308'; ctx.textAlign = 'center';
     ctx.fillText(`${Math.round(spectralCentroid)} Hz (目標:1.5-3k)`, hudX + (hudWidth / 2), hudY + 18);
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
-    ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
-    ctx.fillStyle = '#eab308';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.95)'; ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
+    ctx.fillStyle = '#eab308'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(`声の重心・エネルギー密度モニター [理想重心: 1.5kHz〜3.0kHz]`, canvas.width / 2, canvas.height - 1);
 }
 
