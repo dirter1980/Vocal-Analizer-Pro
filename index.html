@@ -325,7 +325,7 @@
 
         .sono-time-range {
             width: 80px;
-            height: 10px;
+            height: 14px;
             accent-color: var(--throat-color);
             cursor: pointer;
         }
@@ -532,6 +532,7 @@
             white-space: nowrap;
         }
 
+        /* 操作セクション（2列×7行グリッドへ拡張） */
         .btn-col {
             justify-content: flex-start;
             padding: 1px 1px;
@@ -699,6 +700,7 @@
             animation: pulse-rec 1s infinite alternate;
         }
 
+        /* 取説ボタンの配色：平滑化フェーダーと同一のシアン系（--smooth-color: #06b6d4） */
         .btn-manual-simple, .btn-manual-detail {
             background-color: var(--smooth-color);
             color: #ffffff;
@@ -1038,6 +1040,7 @@
     <!-- 1. 発声判定エリア -->
     <div class="card-common card-header">
         <div>
+            <!-- 発声判定ラベルとステータス小窓（バッジ）を横並びにするブロック -->
             <div class="status-title-row">
                 <span class="status-title">発声判定</span>
                 <span class="status-subwindow-badge" id="statusSubWindow">アイドル中</span>
@@ -1193,6 +1196,7 @@
                 </div>
                 <span class="slider-val" id="valWOther">1.0x</span>
             </div>
+            <!-- 操作セクション（2列×7行グリッド：最後2個の取説ボタンを追加） -->
             <div class="col-item btn-col">
                 <span class="col-label" style="color:#ffffff;">操作</span>
                 <div class="btn-grid-2col">
@@ -1220,6 +1224,7 @@
                     </button>
                     <button class="btn-vertical btn-filesave" id="btnFileSave">SAVE</button>
                     <button class="btn-vertical btn-fileopen" id="btnFileOpen">OPEN</button>
+                    <!-- 新規追加：📖 取説(簡易) / 📖 取説(詳細) （配色：平滑化フェーダー同一シアン系） -->
                     <button class="btn-vertical btn-manual-simple" id="btnManualSimple">
                         <span>📖 取説</span>
                         <span class="sub-txt">(簡易)</span>
@@ -1271,10 +1276,10 @@
             <div class="setting-group">
                 <div class="setting-title">基本の使い方</div>
                 <div class="setting-row" style="flex-direction:column; align-items:flex-start; gap:4px; font-size:0.5rem; color:var(--text-sub);">
-                    <span>1. **START** ボタンを押してマイク解析を開始します。</span>
+                    <span>1. <b>START</b> ボタンを押してマイク解析を開始します。</span>
                     <span>2. 発声すると、基音(F0)や口・喉の共鳴比率がリアルタイムで表示されます。</span>
-                    <span>3. **SPEC** ボタンやグラフカードタップで様々な解析モードや設定に切り替えられます。</span>
-                    <span>4. **BGM** や **太鼓** ボタンで練習用の伴奏やメトロノームを鳴らせます。</span>
+                    <span>3. <b>SPEC</b> ボタンやグラフカードタップで様々な解析モードや設定に切り替えられます。</span>
+                    <span>4. <b>BGM</b> や <b>太鼓</b> ボタンで練習用の伴奏やメトロノームを鳴らせます。</span>
                 </div>
             </div>
         </div>
@@ -1526,7 +1531,18 @@ let displayPctThroat = 50;
 let displayDbOral = -80;
 let displayDbThroat = -80;
 let displayRatios = [20, 20, 20, 20, 20];
-let smoothedProcessedData = null; // Safari用 周波数スペクトルの平滑化バッファ
+
+/* Safari（ProMotion 120Hz / AGC / 無音-Infinity / 倍音飛び移り）対策用 時系列安定化状態 */
+let lastLoopTimestamp = 0;
+let smoothedSpectrumArray = null;
+let lockedF0Bin = -1;
+let lockedPeakBin = -1;
+let smoothedF0Hz = 0;
+let smoothedF0Db = -120;
+let smoothedMaxHz = 0;
+let smoothedMaxDb = -120;
+let smoothedDeltaDb = 0;
+let smoothedHnrScore = 0;
 
 const fileNameDisplay = document.getElementById('fileNameDisplay');
 const fileTimeDisplay = document.getElementById('fileTimeDisplay');
@@ -1617,6 +1633,7 @@ const spectrumCard = document.getElementById('spectrumCard');
 const fftTapHint = document.getElementById('fftTapHint');
 const mainAppContainer = document.getElementById('mainAppContainer');
 
+/* 取説ボタン・モーダル要素 */
 const btnManualSimple = document.getElementById('btnManualSimple');
 const btnManualDetail = document.getElementById('btnManualDetail');
 const manualSimpleModal = document.getElementById('manualSimpleModal');
@@ -1624,6 +1641,7 @@ const btnManualSimpleClose = document.getElementById('btnManualSimpleClose');
 const manualDetailModal = document.getElementById('manualDetailModal');
 const btnManualDetailClose = document.getElementById('btnManualDetailClose');
 
+/* BGM & 太鼓ボタン関連要素 */
 const btnBgm = document.getElementById('btnBgm');
 const bgmStatusText = document.getElementById('bgmStatusText');
 const bgmFileInput = document.getElementById('bgmFileInput');
@@ -1645,12 +1663,35 @@ const taikoGainVal = document.getElementById('taikoGainVal');
 
 let currentStableStatus = "通常発声";
 let currentStableColor = "#ffffff";
-let statusFrameCount = 0;
-const STATUS_STABLE_FRAMES = 8;
+let statusStableElapsedSec = 0;
+const STATUS_STABLE_DURATION_SEC = 0.22;
 
 let f0HzValGlobal = 0;
 let maxHzGlobal = 0;
 
+/* --- 連続周波数推定用パラボリック補間ヘルパー --- */
+function interpolateBin(arr, bin, len) {
+    if (bin <= 0 || bin >= len - 1) return bin;
+    const y0 = arr[bin - 1];
+    const y1 = arr[bin];
+    const y2 = arr[bin + 1];
+    const denom = (y0 - 2 * y1 + y2);
+    if (Math.abs(denom) < 1e-6) return bin;
+    const delta = 0.5 * (y0 - y2) / denom;
+    return bin + Math.max(-0.5, Math.min(0.5, delta));
+}
+
+/* --- AnalyserNode の smoothingTimeConstant をユーザー設定と同期するヘルパー --- */
+function syncAnalyserSmoothing() {
+    if (!analyser) return;
+    const baseSmooth = parseFloat(fftSmoothParam.value);
+    const userSmooth = parseFloat(smoothSlider.value);
+    // Safariの細かなブレを抑えるため、baseSmoothを下限としつつ平滑化スライダーに応じて最大0.96まで連動
+    const combined = Math.min(0.96, baseSmooth + (1.0 - baseSmooth) * (userSmooth * 0.75));
+    analyser.smoothingTimeConstant = combined;
+}
+
+/* --- 取説ボタンのイベントリスナー --- */
 btnManualSimple.addEventListener('click', () => {
     manualSimpleModal.classList.add('active');
 });
@@ -1665,6 +1706,7 @@ btnManualDetailClose.addEventListener('click', () => {
     manualDetailModal.classList.remove('active');
 });
 
+/* --- ステータス小窓をいつでも即座に更新する共通関数 --- */
 function updateStatusSubWindow() {
     const isAccompanimentActive = isBgmPlaying || isTaikoPlaying;
     if (currentMode === "MIC" || currentMode === "REC") {
@@ -1686,6 +1728,7 @@ function updateStatusSubWindow() {
     }
 }
 
+/* --- 完全独立系 AudioContext の初期化管理 --- */
 function getIndependentAudioContext() {
     if (!independentAudioCtx || independentAudioCtx.state === 'closed') {
         independentAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1696,6 +1739,7 @@ function getIndependentAudioContext() {
     return independentAudioCtx;
 }
 
+/* --- BGM 機能の実装（マイク連動音量補正対応版：3.5倍） --- */
 function updateBgmGainValue() {
     if (!bgmGainNode) return;
     const baseVol = parseFloat(bgmVolumeSlider.value) / 100;
@@ -1781,6 +1825,7 @@ btnBgm.addEventListener('touchend', (e) => {
 });
 
 btnBgmClose.addEventListener('click', () => bgmConfigModal.classList.remove('active'));
+
 btnBgmSelectFile.addEventListener('click', () => {
     bgmFileInput.value = "";
     bgmFileInput.click();
@@ -1814,6 +1859,7 @@ bgmFileInput.addEventListener('change', (e) => {
     startBgm();
 });
 
+/* --- 太鼓（メトロノーム）機能の実装（3.5倍） --- */
 function toggleTaikoPlayState() {
     if (isTaikoPlaying) {
         stopTaiko();
@@ -1830,6 +1876,7 @@ function startTaiko() {
     updateStatusSubWindow();
 
     const intervalMs = (60 / taikoBpm) * 1000;
+    
     playTaikoBeatSound(ctxInd);
     
     if (taikoTimerId) clearInterval(taikoTimerId);
@@ -1952,11 +1999,13 @@ document.querySelectorAll('#taikoToneOptions .setting-opt-btn').forEach(btn => {
     });
 });
 
+// SPAREボタンの1回長押し・短押しハンドリング
 let sparePressTimer = null;
 let spareLongPressed = false;
 
 btnSpare.addEventListener('mousedown', (e) => { startSparePress(); });
 btnSpare.addEventListener('touchstart', (e) => { e.preventDefault(); startSparePress(); });
+
 btnSpare.addEventListener('mouseup', (e) => { endSparePress(); });
 btnSpare.addEventListener('touchend', (e) => { e.preventDefault(); endSparePress(); });
 btnSpare.addEventListener('mouseleave', (e) => { cancelSparePress(); });
@@ -2065,6 +2114,7 @@ btnPrePost.addEventListener('click', () => {
 
 spectrumCard.addEventListener('click', (e) => {
     if (e.target.closest('.btn-group') || e.target.closest('button') || e.target.closest('input')) return;
+    
     if (selectedMainMode === 'fft' || selectedMainMode === 'comb') {
         fftConfigModal.classList.add('active');
     }
@@ -2074,12 +2124,14 @@ btnFftClose.addEventListener('click', () => fftConfigModal.classList.remove('act
 
 fftSizeSelect.addEventListener('change', (e) => {
     currentFFTSize = parseInt(e.target.value);
+    smoothedSpectrumArray = null;
+    lockedF0Bin = -1;
+    lockedPeakBin = -1;
     if (analyser) analyser.fftSize = currentFFTSize;
-    smoothedProcessedData = null;
 });
 
-fftSmoothParam.addEventListener('input', (e) => {
-    if (analyser) analyser.smoothingTimeConstant = parseFloat(e.target.value);
+fftSmoothParam.addEventListener('input', () => {
+    syncAnalyserSmoothing();
 });
 
 fftMaxHzSelect.addEventListener('change', (e) => {
@@ -2303,6 +2355,7 @@ faderPairs.forEach(pair => {
             threshVal.textContent = `${Math.round(e.target.value)}dB`;
         } else if (e.target === smoothSlider) {
             smoothVal.textContent = `${parseFloat(e.target.value).toFixed(2)}s`;
+            syncAnalyserSmoothing();
         }
     });
 });
@@ -2492,7 +2545,16 @@ function masterReset() {
 
     currentMode = "IDLE";
     activeSourceNode = null;
-    smoothedProcessedData = null;
+    smoothedSpectrumArray = null;
+    lastLoopTimestamp = 0;
+    lockedF0Bin = -1;
+    lockedPeakBin = -1;
+    smoothedF0Hz = 0;
+    smoothedF0Db = -120;
+    smoothedMaxHz = 0;
+    smoothedMaxDb = -120;
+    smoothedDeltaDb = 0;
+    smoothedHnrScore = 0;
 
     btnStart.textContent = "START";
     btnStart.style.backgroundColor = "var(--f0-color)";
@@ -2522,11 +2584,12 @@ async function toggleMicMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        analyser.smoothingTimeConstant = Math.max(0.85, parseFloat(fftSmoothParam.value));
+        syncAnalyserSmoothing();
 
+        // SafariのAGC（自動ゲイン制御）によるコロコロした入力レベル変動を防止
         const micConstraints = {
             audio: {
-                autoGainControl: true,    
+                autoGainControl: false,    
                 echoCancellation: false,  
                 noiseSuppression: false   
             },
@@ -2567,7 +2630,7 @@ async function toggleTestMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        analyser.smoothingTimeConstant = Math.max(0.85, parseFloat(fftSmoothParam.value));
+        syncAnalyserSmoothing();
 
         testOscillator = audioCtx.createOscillator();
         testGain = audioCtx.createGain();
@@ -2627,11 +2690,11 @@ async function toggleRecordMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        analyser.smoothingTimeConstant = Math.max(0.85, parseFloat(fftSmoothParam.value));
+        syncAnalyserSmoothing();
 
         const recConstraints = {
             audio: {
-                autoGainControl: true,
+                autoGainControl: false,
                 echoCancellation: false,
                 noiseSuppression: false
             },
@@ -2704,7 +2767,7 @@ async function startFileMode(file) {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        analyser.smoothingTimeConstant = Math.max(0.85, parseFloat(fftSmoothParam.value));
+        syncAnalyserSmoothing();
 
         audioElement = document.createElement('audio');
         audioElement.preload = 'auto';
@@ -2856,9 +2919,10 @@ function startIdleStatusMonitor() {
     idleLoop();
 }
 
-function loop() {
+function loop(timestamp) {
     if (currentMode === "IDLE" && !isBgmPlaying && !isTaikoPlaying) {
         window._loopRunning = false;
+        lastLoopTimestamp = 0;
         updateStatusSubWindow();
         return;
     }
@@ -2867,27 +2931,26 @@ function loop() {
     updateStatusSubWindow();
 
     if (!analyser) return;
+
+    const now = timestamp || performance.now();
+    const dt = lastLoopTimestamp > 0 ? Math.min(0.1, Math.max(0.004, (now - lastLoopTimestamp) * 0.001)) : (1.0 / 60.0);
+    lastLoopTimestamp = now;
+
     if (isFrozen) return;
 
     const bufferLength = analyser.frequencyBinCount;
     const rawDataArray = new Float32Array(bufferLength);
     analyser.getFloatFrequencyData(rawDataArray);
 
-    // Safari等での高フレームレートによるチラつきを完璧に抑えるための時系列ローパスバッファ
-    if (!smoothedProcessedData || smoothedProcessedData.length !== bufferLength) {
-        smoothedProcessedData = new Float32Array(bufferLength);
-        for (let i = 0; i < bufferLength; i++) smoothedProcessedData[i] = rawDataArray[i];
-    }
-
     const sampleRate = audioCtx ? audioCtx.sampleRate : 44100;
     const binHz = (sampleRate / 2) / bufferLength;
     const threshold = parseFloat(threshSlider.value) + parseFloat(fftPeakSens.value);
-    
-    // ユーザー設定の平滑化スライダー値にSafari専用の最小係数を加味し、ガタつきを滑らかに吸収
-    const userSmooth = parseFloat(smoothSlider.value);
-    const effectiveSmooth = Math.max(userSmooth, 0.25);
-    const dt = 1.0 / 60.0;
-    const alpha = Math.max(0.05, Math.min(0.4, dt / (effectiveSmooth + dt)));
+    const smoothTimeSec = parseFloat(smoothSlider.value);
+
+    // Safari (120Hz ProMotion等) でもフレームレート非依存で滑らかに追従する時定数
+    const barAlpha = 1.0 - Math.exp(-dt / Math.max(0.055, smoothTimeSec));
+    const specAlpha = 1.0 - Math.exp(-dt / Math.max(0.055, smoothTimeSec * 0.9));
+    const metricAlpha = 1.0 - Math.exp(-dt / Math.max(0.075, smoothTimeSec));
 
     const weightF0 = parseFloat(wF0.value);
     const weightLowP = parseFloat(wLowP.value);
@@ -2895,24 +2958,36 @@ function loop() {
     const weightTwang = parseFloat(wTwang.value);
     const weightOther = parseFloat(wOther.value);
 
+    if (!smoothedSpectrumArray || smoothedSpectrumArray.length !== bufferLength) {
+        smoothedSpectrumArray = new Float32Array(bufferLength);
+        for (let i = 0; i < bufferLength; i++) {
+            const v = rawDataArray[i];
+            smoothedSpectrumArray[i] = Number.isFinite(v) ? Math.max(-130, v) : -130;
+        }
+    }
+
+    // 1. 全周波数ビンを統一された平滑化配列へ更新（Safariの-Infinity対策＆混在比較の排除）
+    for (let i = 0; i < bufferLength; i++) {
+        const rawV = rawDataArray[i];
+        const clampedRaw = Number.isFinite(rawV) ? Math.max(-130, rawV) : -130;
+        smoothedSpectrumArray[i] += (clampedRaw - smoothedSpectrumArray[i]) * specAlpha;
+    }
+
     const processedDataArray = new Float32Array(bufferLength);
 
     let pF0 = 0, pLowP = 0, pHighP = 0, pTwang = 0, pOther = 0;
     let pOral = 0, pThroat = 0;
 
-    let maxDb = -999;
-    let maxHz = 0;
-    let f0HzVal = 0, f0DbVal = -999;
-    let foundF0Candidate = false;
+    let bestF0Bin = -1, bestF0Db = -999;
+    let bestPeakBin = -1, bestPeakDb = -999;
 
     let totalHarmonicPower = 0;
     let totalNoisePower = 0;
 
+    // 2. 平滑化済みスペクトルのみを使って一貫したエネルギー計算とピーク探索を実行
     for (let i = 0; i < bufferLength; i++) {
-        // Safariの変動を滑らかに吸収するEMA（指数移動平均）フィルター適用
-        smoothedProcessedData[i] = smoothedProcessedData[i] * (1 - alpha) + rawDataArray[i] * alpha;
-        const rawDb = smoothedProcessedData[i];
         const hz = i * binHz;
+        const rawDb = smoothedSpectrumArray[i];
 
         let power = Math.pow(10, rawDb / 10);
         let bandWeight = 1.0;
@@ -2926,7 +3001,7 @@ function loop() {
         let effectiveDb = rawDb;
         if (globalPrePostMode === "POST") {
             let adjustedPower = power * bandWeight;
-            effectiveDb = adjustedPower > 1e-12 ? 10 * Math.log10(adjustedPower) : -120;
+            effectiveDb = adjustedPower > 1e-13 ? 10 * Math.log10(adjustedPower) : -130;
         }
         processedDataArray[i] = effectiveDb;
 
@@ -2935,11 +3010,11 @@ function loop() {
             if (hz <= 600) {
                 calcPower *= weightF0;
                 pF0 += calcPower;
-                if (!foundF0Candidate && rawDb > threshold && i > 0 && i < bufferLength - 1) {
-                    if (rawDb > smoothedProcessedData[i-1] && rawDb >= smoothedProcessedData[i+1]) {
-                        f0DbVal = rawDb;
-                        f0HzVal = hz;
-                        foundF0Candidate = true;
+                if (rawDb > threshold && i > 0 && i < bufferLength - 1) {
+                    const isLocalPeak = (rawDb >= smoothedSpectrumArray[i - 1] && rawDb >= smoothedSpectrumArray[i + 1]);
+                    if (isLocalPeak && bestF0Bin === -1) {
+                        bestF0Bin = i;
+                        bestF0Db = rawDb;
                     }
                 }
             } else if (hz <= 1500) {
@@ -2960,33 +3035,90 @@ function loop() {
             if (hz >= 3900) pThroat += calcPower;
         }
 
-        if (hz > 600 && hz <= maxDisplayHz && effectiveDb > maxDb) {
-            maxDb = effectiveDb;
-            maxHz = hz;
+        if (hz > 600 && hz <= maxDisplayHz && effectiveDb > bestPeakDb) {
+            bestPeakDb = effectiveDb;
+            bestPeakBin = i;
         }
     }
 
-    if (!foundF0Candidate) {
-        let maxF0Db = -999;
+    if (bestF0Bin === -1) {
         for (let i = 0; i < bufferLength; i++) {
             const hz = i * binHz;
             if (hz >= 100 && hz <= 600) {
-                const db = smoothedProcessedData[i];
-                if (db > maxF0Db) {
-                    maxF0Db = db;
-                    f0DbVal = db;
-                    f0HzVal = hz;
+                const db = smoothedSpectrumArray[i];
+                if (db > bestF0Db) {
+                    bestF0Db = db;
+                    bestF0Bin = i;
                 }
             }
         }
     }
 
-    f0HzValGlobal = (f0DbVal > threshold && f0HzVal > 0) ? f0HzVal : 0;
-    maxHzGlobal = (maxDb > threshold && maxHz > 0) ? maxHz : 0;
+    // 3. ヒステリシス付きピークロック（倍音間のコロコロとした飛び移りを防止）
+    if (bestF0Bin > 0 && bestF0Db > threshold) {
+        if (lockedF0Bin > 0 && lockedF0Bin < bufferLength && smoothedSpectrumArray[lockedF0Bin] > threshold) {
+            const lockedDb = smoothedSpectrumArray[lockedF0Bin];
+            if (Math.abs(bestF0Bin - lockedF0Bin) <= 2 || bestF0Db > lockedDb + 2.5) {
+                lockedF0Bin = bestF0Bin;
+            }
+        } else {
+            lockedF0Bin = bestF0Bin;
+        }
+    } else {
+        lockedF0Bin = -1;
+    }
+
+    if (bestPeakBin > 0 && bestPeakDb > threshold) {
+        if (lockedPeakBin > 0 && lockedPeakBin < bufferLength && processedDataArray[lockedPeakBin] > threshold) {
+            const lockedDb = processedDataArray[lockedPeakBin];
+            if (Math.abs(bestPeakBin - lockedPeakBin) <= 3 || bestPeakDb > lockedDb + 2.5) {
+                lockedPeakBin = bestPeakBin;
+            }
+        } else {
+            lockedPeakBin = bestPeakBin;
+        }
+    } else {
+        lockedPeakBin = -1;
+    }
+
+    const f0HzVal = lockedF0Bin > 0 ? interpolateBin(smoothedSpectrumArray, lockedF0Bin, bufferLength) * binHz : 0;
+    const f0DbVal = lockedF0Bin > 0 ? smoothedSpectrumArray[lockedF0Bin] : -120;
+    const maxHz = lockedPeakBin > 0 ? interpolateBin(processedDataArray, lockedPeakBin, bufferLength) * binHz : 0;
+    const maxDb = lockedPeakBin > 0 ? processedDataArray[lockedPeakBin] : -120;
+
+    // 4. メトリクス数値の滑らかな追従
+    if (f0DbVal > threshold && f0HzVal > 0) {
+        if (smoothedF0Hz <= 0 || Math.abs(f0HzVal - smoothedF0Hz) > 90) {
+            smoothedF0Hz = f0HzVal;
+        } else {
+            smoothedF0Hz += (f0HzVal - smoothedF0Hz) * metricAlpha;
+        }
+        smoothedF0Db = smoothedF0Db <= -110 ? f0DbVal : (smoothedF0Db + (f0DbVal - smoothedF0Db) * metricAlpha);
+    } else {
+        smoothedF0Hz = 0;
+        smoothedF0Db = -120;
+    }
+
+    if (maxDb > threshold && maxHz > 0) {
+        if (smoothedMaxHz <= 0 || Math.abs(maxHz - smoothedMaxHz) > 450) {
+            smoothedMaxHz = maxHz;
+        } else {
+            smoothedMaxHz += (maxHz - smoothedMaxHz) * metricAlpha;
+        }
+        smoothedMaxDb = smoothedMaxDb <= -110 ? maxDb : (smoothedMaxDb + (maxDb - smoothedMaxDb) * metricAlpha);
+    } else {
+        smoothedMaxHz = 0;
+        smoothedMaxDb = -120;
+    }
+
+    f0HzValGlobal = smoothedF0Hz;
+    maxHzGlobal = smoothedMaxHz;
 
     if (f0HzValGlobal > 0) {
-        pitchHistoryBuffer.push({ time: performance.now(), f0: f0HzValGlobal });
-        if (pitchHistoryBuffer.length > 60) pitchHistoryBuffer.shift();
+        pitchHistoryBuffer.push({ time: now, f0: f0HzValGlobal });
+        while (pitchHistoryBuffer.length > 0 && (now - pitchHistoryBuffer[0].time) > 1000) {
+            pitchHistoryBuffer.shift();
+        }
     }
 
     if (f0HzValGlobal >= 80) {
@@ -3012,9 +3144,11 @@ function loop() {
             }
         }
     }
-    const currentOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 
-        ? Math.round((totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100) 
+    const rawOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 
+        ? (totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100 
         : 0;
+    smoothedHnrScore += (rawOverallHnr - smoothedHnrScore) * metricAlpha;
+    const currentOverallHnr = Math.round(smoothedHnrScore);
 
     if (selectedMainMode === 'harmonicClarity') {
         if (currentOverallHnr >= 85 && f0HzValGlobal > 0) {
@@ -3026,19 +3160,19 @@ function loop() {
         spectrumCard.classList.remove('hnr-pass-flash');
     }
 
-    if (f0DbVal > threshold) {
-        f0Hz.innerHTML = `${Math.round(f0HzVal)}<span style="font-size:0.5rem">Hz</span>`;
-        f0Db.innerHTML = `${Math.round(f0DbVal)}<span style="font-size:0.5rem">dB</span>`;
-        noteName.textContent = hzToNote(f0HzVal);
+    if (f0DbVal > threshold && smoothedF0Hz > 0) {
+        f0Hz.innerHTML = `${Math.round(smoothedF0Hz)}<span style="font-size:0.5rem">Hz</span>`;
+        f0Db.innerHTML = `${Math.round(smoothedF0Db)}<span style="font-size:0.5rem">dB</span>`;
+        noteName.textContent = hzToNote(smoothedF0Hz);
     } else {
         f0Hz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
         f0Db.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
         noteName.textContent = '--';
     }
 
-    if (maxDb > threshold) {
-        harmHz.innerHTML = `${Math.round(maxHz)}<span style="font-size:0.5rem">Hz</span>`;
-        harmDb.innerHTML = `${Math.round(maxDb)}<span style="font-size:0.5rem">dB</span>`;
+    if (maxDb > threshold && smoothedMaxHz > 0) {
+        harmHz.innerHTML = `${Math.round(smoothedMaxHz)}<span style="font-size:0.5rem">Hz</span>`;
+        harmDb.innerHTML = `${Math.round(smoothedMaxDb)}<span style="font-size:0.5rem">dB</span>`;
     } else {
         harmHz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
         harmDb.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
@@ -3050,8 +3184,8 @@ function loop() {
         targetPctOral = Math.round((pOral / sumOralThroat) * 100);
         targetPctThroat = 100 - targetPctOral;
     }
-    displayPctOral = displayPctOral * (1 - alpha) + targetPctOral * alpha;
-    displayPctThroat = displayPctThroat * (1 - alpha) + targetPctThroat * alpha;
+    displayPctOral = displayPctOral * (1 - barAlpha) + targetPctOral * barAlpha;
+    displayPctThroat = displayPctThroat * (1 - barAlpha) + targetPctThroat * barAlpha;
 
     const roundOral = Math.round(displayPctOral);
     const roundThroat = 100 - roundOral;
@@ -3063,8 +3197,8 @@ function loop() {
 
     const rawDbOral = 10 * Math.log10(pOral || 1e-10);
     const rawDbThroat = 10 * Math.log10(pThroat || 1e-10);
-    displayDbOral = displayDbOral * (1 - alpha) + rawDbOral * alpha;
-    displayDbThroat = displayDbThroat * (1 - alpha) + rawDbThroat * alpha;
+    displayDbOral = displayDbOral * (1 - barAlpha) + rawDbOral * barAlpha;
+    displayDbThroat = displayDbThroat * (1 - barAlpha) + rawDbThroat * barAlpha;
 
     oralDbText.textContent = `${Math.round(displayDbOral)}dB`;
     throatDbText.textContent = `${Math.round(displayDbThroat)}dB`;
@@ -3080,7 +3214,7 @@ function loop() {
         targetRatios = [rF0, rLowP, rHighP, rTwang, rOther];
     }
     for (let k = 0; k < 5; k++) {
-        displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
+        displayRatios[k] = displayRatios[k] * (1 - barAlpha) + targetRatios[k] * barAlpha;
     }
     const [srF0, srLowP, srHighP, srTwang, srOther] = displayRatios.map(v => Math.round(v));
 
@@ -3090,33 +3224,39 @@ function loop() {
     segTwang.style.width = `${srTwang}%`; segTwang.textContent = srTwang > 5 ? `${srTwang}%` : '';
     segOther.style.width = `${srOther}%`; segOther.textContent = srOther > 5 ? `${srOther}%` : '';
 
-    const delta = Math.round(maxDb - f0DbVal);
-    deltaText.textContent = (isNaN(delta) || f0DbVal <= threshold) ? '-- dB' : `${delta > 0 ? '+' : ''}${delta}dB`;
+    if (f0DbVal > threshold && maxDb > threshold) {
+        const rawDelta = smoothedMaxDb - smoothedF0Db;
+        smoothedDeltaDb += (rawDelta - smoothedDeltaDb) * metricAlpha;
+        const delta = Math.round(smoothedDeltaDb);
+        deltaText.textContent = isNaN(delta) ? '-- dB' : `${delta > 0 ? '+' : ''}${delta}dB`;
+    } else {
+        deltaText.textContent = '-- dB';
+    }
 
     let rawStatus = "通常発声";
     let rawColor = "#ffffff";
 
-    if (maxDb > threshold) {
-        if (maxHz >= 1500 && maxHz <= 2500) {
+    if (maxDb > threshold && smoothedMaxHz > 0) {
+        if (smoothedMaxHz >= 1500 && smoothedMaxHz <= 2500) {
             rawStatus = "高音ファリンジャル共鳴";
             rawColor = COLOR_HIGH_P;
-        } else if (maxHz >= 600 && maxHz < 1500) {
+        } else if (smoothedMaxHz >= 600 && smoothedMaxHz < 1500) {
             rawStatus = "低音ファリンジャル共鳴";
             rawColor = COLOR_LOW_P;
-        } else if (maxHz > 2500) {
+        } else if (smoothedMaxHz > 2500) {
             rawStatus = "喉トワング強調";
             rawColor = COLOR_TWANG;
         }
     }
 
     if (rawStatus === currentStableStatus) {
-        statusFrameCount = 0;
+        statusStableElapsedSec = 0;
     } else {
-        statusFrameCount++;
-        if (statusFrameCount >= STATUS_STABLE_FRAMES) {
+        statusStableElapsedSec += dt;
+        if (statusStableElapsedSec >= STATUS_STABLE_DURATION_SEC) {
             currentStableStatus = rawStatus;
             currentStableColor = rawColor;
-            statusFrameCount = 0;
+            statusStableElapsedSec = 0;
         }
     }
 
@@ -3130,21 +3270,21 @@ function loop() {
 
     if (selectedMainMode === 'fft') {
         if (fftSubMode === 'log') {
-            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
         } else {
-            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
         }
     } else if (selectedMainMode === 'comb') {
         if (combSubMode === 'hz') {
-            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
         } else {
-            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, f0HzVal, maxHz);
+            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
         }
     } else if (selectedMainMode === 'sonogram') {
         if (sonoAxisMode === 'tracer') {
-            drawTracerSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold);
+            drawTracerSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, threshold, dt);
         } else {
-            drawSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, maxHzGlobal);
+            drawSonogram(processedDataArray, bufferLength, binHz, f0HzValGlobal, maxHzGlobal, dt);
         }
     } else if (selectedMainMode === 'formant') {
         drawFormantMap(processedDataArray, bufferLength, binHz, threshold);
@@ -3308,7 +3448,7 @@ function drawSpectrumLinear(dataArray, bufferLength, binHz, threshold, f0HzVal, 
         ctx.fillText("▼F0", f0X, 9);
     }
 
-    if (maxHz <= maxHzRange) {
+    if (maxHz > 0 && maxHz <= maxHzRange) {
         const maxX = 30 + ((maxHz / maxHzRange) * (canvas.width - 30));
         ctx.strokeStyle = '#eab308';
         ctx.lineWidth = 1.5;
@@ -3455,13 +3595,13 @@ function getSonogramY(hz, sHeight, f0Val) {
     }
 }
 
-function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal) {
+function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal, dt) {
     if (!canvas.width || !canvas.height) return;
 
     const sWidth = sonogramCanvas.width;
     const sHeight = sonogramCanvas.height;
-    const fpsEstimate = 60;
-    const shiftPx = Math.max(1, sWidth / (sonoTimeWindowSec * fpsEstimate));
+    const frameDt = dt || (1.0 / 60.0);
+    const shiftPx = Math.max(1, (sWidth / sonoTimeWindowSec) * frameDt);
 
     sonogramCtx.drawImage(sonogramCanvas, shiftPx, 0, sWidth - shiftPx, sHeight, 0, 0, sWidth - shiftPx, sHeight);
     sonogramCtx.fillStyle = '#000000';
@@ -3595,13 +3735,13 @@ function drawSonogram(dataArray, bufferLength, binHz, f0HzVal, maxHzVal) {
     ctx.fillText(`ソノグラム [縦軸: ${sonoAxisMode.toUpperCase()} | ${Math.round(sonoTimeWindowSec)}秒幅]`, canvas.width / 2, canvas.height - 1);
 }
 
-function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold) {
+function drawTracerSonogram(dataArray, bufferLength, binHz, f0HzVal, threshold, dt) {
     if (!canvas.width || !canvas.height) return;
 
     const sWidth = sonogramCanvas.width;
     const sHeight = sonogramCanvas.height;
-    const fpsEstimate = 60;
-    const shiftPx = Math.max(1, sWidth / (sonoTimeWindowSec * fpsEstimate));
+    const frameDt = dt || (1.0 / 60.0);
+    const shiftPx = Math.max(1, (sWidth / sonoTimeWindowSec) * frameDt);
 
     sonogramCtx.drawImage(sonogramCanvas, shiftPx, 0, sWidth - shiftPx, sHeight, 0, 0, sWidth - shiftPx, sHeight);
     sonogramCtx.fillStyle = '#000000';
@@ -3669,8 +3809,12 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 16;
-    const leftMargin = 66, rightMargin = 20, topMargin = 16, bottomMargin = 40;
+    const labelAreaHeight = 14;
+    const leftMargin = 62;   
+    const rightMargin = 20;  
+    const topMargin = 14;    
+    const bottomMargin = 38; 
+    
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
 
@@ -3690,7 +3834,7 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
         const vy = topMargin + graphHeight - ((v.f2 - f2Min) / (f2Max - f2Min)) * graphHeight;
         
         ctx.fillStyle = v.color;
-        ctx.beginPath(); ctx.arc(vx, vy, 24, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(vx, vy, 22, 0, Math.PI * 2); ctx.fill();
 
         ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
         ctx.font = 'bold 9px sans-serif';
@@ -3715,28 +3859,28 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
         ctx.fillText(`${f2}Hz`, leftMargin - 4, y + 3);
     });
 
+    // 縦軸名 (F2 [Hz]) と方向表現
+    ctx.font = 'bold 7px sans-serif';
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 7.5px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('F2 [Hz]', 4, topMargin + 6);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
-    ctx.fillText('↑舌が前', 4, topMargin + 17);
-    ctx.fillText('↓舌が後', 4, topMargin + graphHeight - 2);
+    ctx.fillText("↑舌が前", 3, topMargin + 8);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText("F2 [Hz]", 3, topMargin + graphHeight / 2 + 2);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText("↓舌が後", 3, topMargin + graphHeight - 2);
 
-    const guideY = topMargin + graphHeight + 22;
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('顎低い(口小さい)←', leftMargin, guideY);
+    // 横軸名 (F1 [Hz]) と方向表現
+    const xGuideY = topMargin + graphHeight + 21;
+    ctx.font = 'bold 7px sans-serif';
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 7.5px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText("顎低い(口小さい)←", leftMargin, xGuideY);
+    ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'center';
-    ctx.fillText('F1 [Hz]', leftMargin + graphWidth / 2, guideY);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
+    ctx.fillText("F1 [Hz]", leftMargin + graphWidth / 2, xGuideY);
+    ctx.fillStyle = '#38bdf8';
     ctx.textAlign = 'right';
-    ctx.fillText('→顎高い(口大きい)', leftMargin + graphWidth, guideY);
+    ctx.fillText("→顎高い(口大きい)", leftMargin + graphWidth, xGuideY);
 
     let rawF1 = 0, rawF2 = 0;
     let maxF1Db = -999, maxF2Db = -999;
@@ -3792,7 +3936,7 @@ function drawFormantMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#a855f7';
     ctx.font = '7px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`4-1. フォルマント [横軸: F1(Hz) | 縦軸: F2(Hz) | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
+    ctx.fillText(`4-1. フォルマント [横軸: F1 [Hz] | 縦軸: F2 [Hz] | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
@@ -3800,8 +3944,12 @@ function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 16;
-    const leftMargin = 72, rightMargin = 20, topMargin = 16, bottomMargin = 40;
+    const labelAreaHeight = 14;
+    const leftMargin = 66;   
+    const rightMargin = 20;  
+    const topMargin = 14;    
+    const bottomMargin = 38; 
+    
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
 
@@ -3813,10 +3961,10 @@ function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
     const goldY = topMargin + graphHeight - ((15 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(goldX, topMargin, leftMargin + graphWidth - goldX, goldY - topMargin);
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = 'bold 7.5px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = 'bold 8px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText("★ 民謡・音頭の理想の抜けゾーン", leftMargin + graphWidth - 6, topMargin + 12);
+    ctx.fillText("★ 民謡・音頭の理想の抜けゾーン (芯＋高域キレ)", leftMargin + graphWidth - 6, topMargin + 12);
 
     ctx.strokeStyle = 'rgba(234, 179, 8, 0.25)';
     ctx.lineWidth = 1;
@@ -3834,28 +3982,28 @@ function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
         ctx.fillText(`${rich}%`, leftMargin - 4, y + 3);
     });
 
+    // 縦軸名 (高次倍音比率[%]) と方向表現
+    ctx.font = 'bold 6.5px sans-serif';
     ctx.fillStyle = '#eab308';
-    ctx.font = 'bold 7px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('高次倍音比率[%]', 2, topMargin + 6);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
-    ctx.fillText('↑キレがある声', 2, topMargin + 17);
-    ctx.fillText('↓まろやかな声', 2, topMargin + graphHeight - 2);
+    ctx.fillText("↑キレがある声", 2, topMargin + 8);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText("高次倍音比率[%]", 2, topMargin + graphHeight / 2 + 2);
+    ctx.fillStyle = '#eab308';
+    ctx.fillText("↓まろやかな声", 2, topMargin + graphHeight - 2);
 
-    const guideY = topMargin + graphHeight + 22;
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('こもった声←', leftMargin, guideY);
-    ctx.fillStyle = '#eab308';
+    // 横軸名 (高域dB － 低域dB [dB]) と方向表現
+    const xGuideY = topMargin + graphHeight + 21;
     ctx.font = 'bold 7px sans-serif';
+    ctx.fillStyle = '#eab308';
+    ctx.textAlign = 'left';
+    ctx.fillText("こもった声←", leftMargin, xGuideY);
+    ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'center';
-    ctx.fillText('高域dB － 低域dB [dB]', leftMargin + graphWidth / 2, guideY);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '7px sans-serif';
+    ctx.fillText("高域dB － 低域dB [dB]", leftMargin + graphWidth / 2, xGuideY);
+    ctx.fillStyle = '#eab308';
     ctx.textAlign = 'right';
-    ctx.fillText('→明るい声', leftMargin + graphWidth, guideY);
+    ctx.fillText("→明るい声", leftMargin + graphWidth, xGuideY);
 
     let lowSumDb = 0, lowCount = 0;
     let highSumDb = 0, highCount = 0;
@@ -3919,7 +4067,7 @@ function drawTiltRichnessMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#eab308';
     ctx.font = '7px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`4-2. 倍音・抜け [横軸: 高域dB－低域dB | 縦軸: 高次倍音比率(%) | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
+    ctx.fillText(`4-2. 倍音・抜け [横軸: 高域dB－低域dB [dB] | 縦軸: 高次倍音比率[%] | ${globalPrePostMode}基準]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawModulationMap() {
@@ -3927,35 +4075,35 @@ function drawModulationMap() {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 16;
-    const leftMargin = 58, rightMargin = 20, topMargin = 16, bottomMargin = 40;
+    const labelAreaHeight = 14;
+    const leftMargin = 62, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
 
     const xMin = 0, xMax = 10;   
     const yMin = 0, yMax = 12;   
 
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+    // 中央の水色領域（こぶし・ビブラート適正ゾーン）
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
     let gX1 = leftMargin + ((2.5 - xMin) / (xMax - xMin)) * graphWidth;
     let gX2 = leftMargin + ((7.0 - xMin) / (xMax - xMin)) * graphWidth;
     let gY1 = topMargin + graphHeight - ((9.0 - yMin) / (yMax - yMin)) * graphHeight;
     let gY2 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(gX1, gY1, gX2 - gX1, gY2 - gY1);
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 8px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText("★こぶし・ビブラート適正ゾーン", (gX1 + gX2) / 2, (gY1 + gY2) / 2 + 3);
-
-    ctx.fillStyle = 'rgba(10, 185, 129, 0.16)';
+    // 下部の緑色領域（ストレート音域）
+    ctx.fillStyle = 'rgba(10, 185, 129, 0.12)';
     let sY1 = topMargin + graphHeight - ((2.0 - yMin) / (yMax - yMin)) * graphHeight;
-    let sHeight = topMargin + graphHeight - sY1;
-    ctx.fillRect(leftMargin, sY1, graphWidth, sHeight);
+    ctx.fillRect(leftMargin, sY1, graphWidth, topMargin + graphHeight - sY1);
 
-    ctx.fillStyle = '#10b981';
+    // 各領域の直近にラベル配置
     ctx.font = 'bold 8px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText("■ ストレート音域", leftMargin + graphWidth / 2, sY1 + (sHeight / 2) + 3);
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.85)';
+    ctx.fillText("★こぶし・ビブラート適正ゾーン", (gX1 + gX2) / 2, gY1 + 12);
+
+    ctx.fillStyle = 'rgba(110, 231, 183, 0.85)';
+    ctx.fillText("■ ストレート音域", leftMargin + graphWidth * 0.5, sY1 + (topMargin + graphHeight - sY1) * 0.65);
 
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
     [2, 4, 6, 8].forEach(rate => {
@@ -3972,15 +4120,17 @@ function drawModulationMap() {
         ctx.fillText(`${depth}dB`, leftMargin - 4, y + 3);
     });
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 7.5px sans-serif';
+    // 縦軸名 (うなり [dB])
+    ctx.font = 'bold 7px sans-serif';
+    ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'left';
-    ctx.fillText('うなり [dB]', 4, topMargin + 8);
+    ctx.fillText("うなり [dB]", 3, topMargin + graphHeight / 2 + 2);
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 7.5px sans-serif';
+    // 横軸名 (ゆらぎ [Hz])
+    ctx.font = 'bold 7px sans-serif';
+    ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'center';
-    ctx.fillText('ゆらぎ [Hz]', leftMargin + graphWidth / 2, topMargin + graphHeight + 22);
+    ctx.fillText("ゆらぎ [Hz]", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
 
     let measuredRate = 0.0;
     let measuredDepth = 0.0;
@@ -4034,14 +4184,14 @@ function drawModulationMap() {
     ctx.fillStyle = '#eab308';
     ctx.font = 'bold 8px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(` [ゆらぎ:${measuredRate.toFixed(1)}Hz, うなり:${measuredDepth.toFixed(1)}dB]`, plotX + 9, plotY + 3);
+    ctx.fillText(` [実測ゆらぎ:${measuredRate.toFixed(1)}Hz, うなり:${measuredDepth.toFixed(1)}dB]`, plotX + 9, plotY + 3);
 
     ctx.fillStyle = 'rgba(11, 15, 25, 0.95)';
     ctx.fillRect(0, canvas.height - labelAreaHeight, canvas.width, labelAreaHeight);
     ctx.fillStyle = '#38bdf8';
     ctx.font = '7px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`4-3. 揺らぎ・うねり [横軸: ゆらぎ(Hz) | 縦軸: うなり(dB)]`, canvas.width / 2, canvas.height - 1);
+    ctx.fillText(`4-3. 揺らぎ・うねり [横軸: ゆらぎ [Hz] | 縦軸: うなり [dB] | 本物のこぶし・ビブラート解析]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
@@ -4049,70 +4199,29 @@ function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const labelAreaHeight = 16;
-    const leftMargin = 66, rightMargin = 20, topMargin = 16, bottomMargin = 40;
+    const labelAreaHeight = 14;
+    const leftMargin = 66, rightMargin = 20, topMargin = 14, bottomMargin = 38;
     const graphWidth = canvas.width - leftMargin - rightMargin;
     const graphHeight = canvas.height - topMargin - bottomMargin;
 
     const xMin = 0, xMax = 1.0;
     const yMin = 0, yMax = 1.0;
 
-    ctx.fillStyle = 'rgba(10, 185, 129, 0.16)';
+    // 左上の緑色領域（レーザー直進・芯強調ゾーン）
+    ctx.fillStyle = 'rgba(10, 185, 129, 0.14)';
     let lX1 = leftMargin;
     let lX2 = leftMargin + ((0.4 - xMin) / (xMax - xMin)) * graphWidth;
     let lY1 = topMargin + graphHeight - ((1.0 - yMin) / (yMax - yMin)) * graphHeight;
     let lY2 = topMargin + graphHeight - ((0.6 - yMin) / (yMax - yMin)) * graphHeight;
     ctx.fillRect(lX1, lY1, lX2 - lX1, lY2 - lY1);
 
-    ctx.fillStyle = '#10b981';
-    ctx.font = 'bold 7.5px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText("★ レーザー直進・芯強調ゾーン", lX1 + 4, lY1 + 11);
-    ctx.fillStyle = 'rgba(167, 243, 208, 0.85)';
-    ctx.font = '6.5px sans-serif';
-    ctx.fillText("③ 音頭チャント・鋭いトワング(遠達)", lX1 + 4, lY1 + 21);
-
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
+    // 右側の水色領域（空間拡散・響ゾーン）
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
     let dX1 = leftMargin + ((0.5 - xMin) / (xMax - xMin)) * graphWidth;
     let dX2 = leftMargin + graphWidth;
     ctx.fillRect(dX1, topMargin, dX2 - dX1, graphHeight);
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 7.5px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText("■ 空間拡散・響ゾーン", dX2 - 4, topMargin + 11);
-
-    const opX = leftMargin + 0.56 * graphWidth;
-    const opY = topMargin + graphHeight * 0.48;
-    ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
-    ctx.font = '6.5px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText("② クラシック・オペラ発声", opX, opY);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
-    ctx.font = '6px sans-serif';
-    ctx.fillText("(豊かな母音・ファリンジャル)", opX, opY + 8);
-
-    const whX = dX2 - 4;
-    const whY = topMargin + graphHeight - 13;
-    ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
-    ctx.font = '6.5px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText("① ウィスパーボイス", whX, whY);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
-    ctx.font = '6px sans-serif';
-    ctx.fillText("(息もれ声・ささやき声)", whX, whY + 8);
-
-    const sqX = leftMargin + 0.25 * graphWidth;
-    const sqY = topMargin + graphHeight - 13;
-    ctx.fillStyle = 'rgba(253, 186, 116, 0.85)';
-    ctx.font = '6.5px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText("④ 喉絞り雑音・潰れた声", sqX, sqY);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
-    ctx.font = '6px sans-serif';
-    ctx.fillText("(力みすぎた発声)", sqX, sqY + 8);
-
-    ctx.strokeStyle = 'rgba(10, 185, 129, 0.22)';
+    ctx.strokeStyle = 'rgba(10, 185, 129, 0.25)';
     [0.2, 0.4, 0.6, 0.8].forEach(sp => {
         const x = leftMargin + ((sp - xMin) / (xMax - xMin)) * graphWidth;
         ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + graphHeight); ctx.stroke();
@@ -4127,16 +4236,45 @@ function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
         ctx.fillText(`${cn.toFixed(2)}`, leftMargin - 4, y + 3);
     });
 
-    ctx.fillStyle = '#10b981';
-    ctx.font = 'bold 7px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('エネルギー', 3, topMargin + 7);
-    ctx.fillText('集中度', 3, topMargin + 16);
-
-    ctx.fillStyle = '#10b981';
+    // 各ゾーン直近ラベルの配置
     ctx.font = 'bold 7.5px sans-serif';
+    ctx.fillStyle = 'rgba(110, 231, 183, 0.9)';
+    ctx.textAlign = 'left';
+    ctx.fillText("★ レーザー直進・芯強調ゾーン", lX1 + 4, lY1 + 10);
+
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.9)';
+    ctx.textAlign = 'right';
+    ctx.fillText("■ 空間拡散・響ゾーン", dX2 - 4, topMargin + 10);
+
+    // 4つの発声特徴ラベルの配置
+    ctx.font = '6.5px sans-serif';
+    ctx.fillStyle = 'rgba(167, 243, 208, 0.72)';
+    ctx.textAlign = 'left';
+    ctx.fillText("③ 音頭チャント・鋭いトワング(遠達)", lX1 + 4, lY1 + 21);
+
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
     ctx.textAlign = 'center';
-    ctx.fillText('帯域分散度', leftMargin + graphWidth / 2, topMargin + graphHeight + 22);
+    ctx.fillText("② クラシック・オペラ発声(豊母音/Phar)", leftMargin + graphWidth * 0.65, topMargin + graphHeight * 0.52);
+
+    ctx.fillStyle = 'rgba(253, 186, 116, 0.72)';
+    ctx.textAlign = 'left';
+    ctx.fillText("④ 喉絞り雑音・潰れた声(力み)", leftMargin + 4, topMargin + graphHeight - 6);
+
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.72)';
+    ctx.textAlign = 'right';
+    ctx.fillText("① ウィスパーボイス(息もれ/ささやき)", dX2 - 4, topMargin + graphHeight - 6);
+
+    // 縦軸名 (エネルギー集中度)
+    ctx.font = 'bold 6.5px sans-serif';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'left';
+    ctx.fillText("エネルギー集中度", 2, topMargin + graphHeight / 2 + 2);
+
+    // 横軸名 (帯域分散度)
+    ctx.font = 'bold 7px sans-serif';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'center';
+    ctx.fillText("帯域分散度", leftMargin + graphWidth / 2, topMargin + graphHeight + 21);
 
     let totalP = 0, peakP = 0, weightedVar = 0, centroid = 0;
 
@@ -4192,7 +4330,7 @@ function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
     ctx.fillStyle = '#10b981';
     ctx.font = '7px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`4-4. 音色の拡散・収束 [横軸: 帯域分散度 | 縦軸: エネルギー集中度]`, canvas.width / 2, canvas.height - 1);
+    ctx.fillText(`4-4. 音色の拡散・収束 [横軸: 帯域分散度 | 縦軸: エネルギー集中度 | 空間拡散 vs レーザー直進]`, canvas.width / 2, canvas.height - 1);
 }
 
 function drawHarmonicClarityAnalyzer(dataArray, bufferLength, binHz, f0Val, threshold, currentOverallHnr) {
@@ -4200,48 +4338,44 @@ function drawHarmonicClarityAnalyzer(dataArray, bufferLength, binHz, f0Val, thre
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const topMargin = 48;
+    const topMargin = 42;
     const labelAreaHeight = 16;
     const graphHeight = canvas.height - topMargin - labelAreaHeight;
 
-    // 1段目：タイトル（左寄せで独立表示）
+    // 1行目：タイトル（重なり防止のため独立行に配置）
     ctx.font = 'bold 9.5px sans-serif';
     ctx.fillStyle = '#10b981';
     ctx.textAlign = 'left';
-    ctx.fillText(`【5. 倍音純度・クリアネス (HNR) [合格基準: 85%以上]】`, 10, 14);
+    ctx.fillText(`【5. 倍音純度・クリアネス (HNR) [合格基準: 85%以上]】`, 10, 12);
 
-    // 2段目左側：総合スコア小窓（四角で囲ったHUDボックス）
+    // 2行目（少し下）：「総合スコア」四角囲み小窓 ＋ その右側に目標域・ステータス表示
+    const scoreColor = currentOverallHnr >= 85 ? '#10b981' : (currentOverallHnr >= 70 ? '#eab308' : '#38bdf8');
     const boxX = 10;
-    const boxY = 20;
-    const boxW = 96;
-    const boxH = 22;
-    const scoreColor = currentOverallHnr >= 85 ? '#10b981' : (currentOverallHnr >= 70 ? '#eab308' : '#f8fafc');
+    const boxY = 17;
+    const boxW = 94;
+    const boxH = 21;
 
-    ctx.fillStyle = 'rgba(21, 28, 44, 0.92)';
-    ctx.strokeStyle = currentOverallHnr >= 85 ? '#10b981' : '#0284c7';
-    ctx.lineWidth = 1.2;
+    ctx.fillStyle = 'rgba(21, 28, 44, 0.95)';
+    ctx.strokeStyle = scoreColor;
+    ctx.lineWidth = 1.5;
     ctx.fillRect(boxX, boxY, boxW, boxH);
     ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-    ctx.font = 'bold 8px sans-serif';
+    ctx.font = 'bold 7.5px sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.textAlign = 'left';
-    ctx.fillText('総合スコア', boxX + 5, boxY + 14);
+    ctx.fillText("総合スコア", boxX + 5, boxY + 13);
 
     ctx.font = '900 14px sans-serif';
     ctx.fillStyle = scoreColor;
     ctx.textAlign = 'right';
-    ctx.fillText(`${currentOverallHnr}%`, boxX + boxW - 5, boxY + 16);
+    ctx.fillText(`${currentOverallHnr}%`, boxX + boxW - 5, boxY + 15);
 
-    // 2段目右側：総合スコア小窓の右隣に評価目安テキストを配置
+    // 小窓のすぐ右側に目標域・合格ステータスを配置
     ctx.font = 'bold 8.5px sans-serif';
     ctx.fillStyle = currentOverallHnr >= 85 ? '#34d399' : '#cbd5e1';
     ctx.textAlign = 'left';
-    ctx.fillText(
-        currentOverallHnr >= 85 ? "★ 合格 (PASS 85%以上)" : "目標域: 70〜84% (要改善<70%)",
-        boxX + boxW + 8,
-        boxY + 14
-    );
+    ctx.fillText(currentOverallHnr >= 85 ? "★ 合格 (PASS 85%以上)" : "目標域: 70〜84% (要改善<70%)", boxX + boxW + 8, boxY + 14);
 
     const effectiveF0 = (f0Val >= 60 && f0Val <= 600) ? f0Val : 150;
     const maxHarmonics = 16;
