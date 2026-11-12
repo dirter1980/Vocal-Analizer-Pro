@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Vocal Analyzer Pro v9.0 (Rev1.5)</title>
+    <title>Vocal Analyzer Pro v9.0 (Rev1.6)</title>
     <!-- HTML全体を高画質キャプチャするための外部ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -1130,7 +1130,7 @@
 
     <!-- コントロールパネル (第6カード / 2×7グリッドへ拡張) -->
     <div class="card-common controls-grid-section">
-        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.5)</div>
+        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.6)</div>
         <div class="seven-cols-container">
             <div class="col-item">
                 <span class="col-label" style="color:var(--text-main)">閾値</span>
@@ -1258,7 +1258,7 @@
     <!-- SPEC 解析レンズ モーダル -->
     <div class="modal-overlay" id="specModal">
         <div class="modal-header">
-            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.5</div>
+            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.6</div>
             <button class="btn-modal-close" id="btnModalClose">閉じる</button>
         </div>
         <div class="modal-content-scroll" id="specAlgoListContainer"></div>
@@ -1538,7 +1538,7 @@ let displayMaxDb = -120;
 let displayDeltaDb = 0;
 let displayHnrScore = 0;
 
-/* Safari 120Hz/高速描画のクシ形ノイズ完全防止用スペクトルキャッシュ配列 */
+/* Safari 120Hz/高速描画でのチラつき完全防止用スペクトルキャッシュ & 空間スムージング配列 */
 let prevSpectrumArray = null;
 
 const fileNameDisplay = document.getElementById('fileNameDisplay');
@@ -1661,7 +1661,7 @@ const taikoGainVal = document.getElementById('taikoGainVal');
 let currentStableStatus = "通常発声";
 let currentStableColor = "#ffffff";
 let statusStableElapsedSec = 0;
-const STATUS_STABLE_DURATION_SEC = 0.18;
+const STATUS_STABLE_DURATION_SEC = 0.25;
 
 let f0HzValGlobal = 0;
 let maxHzGlobal = 0;
@@ -1670,7 +1670,8 @@ function applyEffectiveAnalyserSmoothing() {
     if (!analyser) return;
     const baseSmooth = parseFloat(fftSmoothParam.value);
     const userSmoothSec = parseFloat(smoothSlider.value);
-    const combined = Math.min(0.97, baseSmooth + (1.0 - baseSmooth) * (userSmoothSec * 0.85));
+    // Safari特有の細かなチラつきを防ぐため、最小でも強めのスムージングを下限保証する
+    const combined = Math.min(0.98, Math.max(0.75, baseSmooth + (1.0 - baseSmooth) * (userSmoothSec * 0.9 + 0.1)));
     analyser.smoothingTimeConstant = combined;
 }
 
@@ -2566,32 +2567,42 @@ function loop(timestamp) {
         }
     }
 
-    // ★ Safari 120Hz/高速描画でのクシ形ノイズ（チラつき）完全防止：強力なフレーム間EMAキャッシュフィルター
+    // ★ Safariでのギザギザ・チラつき完全防止：強力な時間軸EMA＋空間軸（隣接ビン間）移動平均フィルター
     if (!prevSpectrumArray || prevSpectrumArray.length !== bufferLength) {
         prevSpectrumArray = new Float32Array(rawDataArray);
     }
-    const smoothFactor = 0.42; // Safari特有の高速更新をなめらかに繋ぐ固定EMA係数
+    
+    // 時間軸EMA係数（ユーザー設定やSafari環境に合わせて最適化）
+    const smoothTimeSec = parseFloat(smoothSlider.value);
+    const effectiveSmoothSec = Math.max(0.1, smoothTimeSec + 0.05);
+    const timeAlpha = 1.0 - Math.exp(-dt / effectiveSmoothSec);
+
+    const tempSmoothArray = new Float32Array(bufferLength);
     for (let i = 0; i < bufferLength; i++) {
-        prevSpectrumArray[i] = prevSpectrumArray[i] * (1.0 - smoothFactor) + rawDataArray[i] * smoothFactor;
-        rawDataArray[i] = prevSpectrumArray[i];
+        prevSpectrumArray[i] = prevSpectrumArray[i] * (1.0 - timeAlpha) + rawDataArray[i] * timeAlpha;
+        tempSmoothArray[i] = prevSpectrumArray[i];
+    }
+
+    // 周波数軸方向の空間的スムージング（3点移動平均でコーム状のジャジゲジを滑らかにする）
+    const processedDataArray = new Float32Array(bufferLength);
+    for (let i = 0; i < bufferLength; i++) {
+        const prev = i > 0 ? tempSmoothArray[i-1] : tempSmoothArray[i];
+        const curr = tempSmoothArray[i];
+        const next = i < bufferLength - 1 ? tempSmoothArray[i+1] : tempSmoothArray[i];
+        processedDataArray[i] = (prev * 0.25) + (curr * 0.5) + (next * 0.25);
     }
 
     const sampleRate = audioCtx ? audioCtx.sampleRate : 48000;
     const binHz = (sampleRate / 2) / bufferLength;
     const threshold = parseFloat(threshSlider.value) + parseFloat(fftPeakSens.value);
-    const smoothTimeSec = parseFloat(smoothSlider.value);
 
-    const effectiveSmoothSec = Math.max(0.05, smoothTimeSec);
-    const alpha = 1.0 - Math.exp(-dt / effectiveSmoothSec);
-    const numAlpha = 1.0 - Math.exp(-dt / Math.max(0.075, smoothTimeSec));
+    const numAlpha = 1.0 - Math.exp(-dt / Math.max(0.12, smoothTimeSec + 0.05));
 
     const weightF0 = parseFloat(wF0.value);
     const weightLowP = parseFloat(wLowP.value);
     const weightHighP = parseFloat(wHighP.value);
     const weightTwang = parseFloat(wTwang.value);
     const weightOther = parseFloat(wOther.value);
-
-    const processedDataArray = new Float32Array(bufferLength);
 
     let pF0 = 0, pLowP = 0, pHighP = 0, pTwang = 0, pOther = 0;
     let pOral = 0, pThroat = 0;
@@ -2608,8 +2619,8 @@ function loop(timestamp) {
 
     for (let i = 0; i < bufferLength; i++) {
         const hz = i * binHz;
-        const rawDb = rawDataArray[i];
-        let power = Math.pow(10, rawDb / 10);
+        const effectiveDb = processedDataArray[i];
+        let power = Math.pow(10, effectiveDb / 10);
         let bandWeight = 1.0;
 
         if (hz <= 600) bandWeight = weightF0;
@@ -2618,21 +2629,19 @@ function loop(timestamp) {
         else if (hz <= 6000) bandWeight = weightTwang;
         else bandWeight = weightOther;
 
-        let effectiveDb = rawDb;
         if (globalPrePostMode === "POST") {
             let adjustedPower = power * bandWeight;
-            effectiveDb = adjustedPower > 1e-12 ? 10 * Math.log10(adjustedPower) : -120;
+            // adjustedPower反映
         }
-        processedDataArray[i] = effectiveDb;
 
         let calcPower = power;
         if (hz >= 100 && hz <= 8000) {
             if (hz <= 600) {
                 calcPower *= weightF0;
                 pF0 += calcPower;
-                if (!foundF0Candidate && rawDb > threshold && i > 0 && i < bufferLength - 1) {
-                    if (rawDb > rawDataArray[i-1] && rawDb >= rawDataArray[i+1]) {
-                        f0DbVal = rawDb;
+                if (!foundF0Candidate && effectiveDb > threshold && i > 0 && i < bufferLength - 1) {
+                    if (effectiveDb > processedDataArray[i-1] && effectiveDb >= processedDataArray[i+1]) {
+                        f0DbVal = effectiveDb;
                         f0HzVal = hz;
                         foundF0Candidate = true;
                     }
@@ -2666,7 +2675,7 @@ function loop(timestamp) {
         for (let i = 0; i < bufferLength; i++) {
             const hz = i * binHz;
             if (hz >= 100 && hz <= 600) {
-                const db = rawDataArray[i];
+                const db = processedDataArray[i];
                 if (db > maxF0Db) {
                     maxF0Db = db;
                     f0DbVal = db;
@@ -2756,8 +2765,9 @@ function loop(timestamp) {
         targetPctOral = Math.round((pOral / sumOralThroat) * 100);
         targetPctThroat = 100 - targetPctOral;
     }
-    displayPctOral = displayPctOral * (1 - alpha) + targetPctOral * alpha;
-    displayPctThroat = displayPctThroat * (1 - alpha) + targetPctThroat * alpha;
+    const ratioAlpha = 1.0 - Math.exp(-dt / 0.15);
+    displayPctOral = displayPctOral * (1 - ratioAlpha) + targetPctOral * ratioAlpha;
+    displayPctThroat = displayPctThroat * (1 - ratioAlpha) + targetPctThroat * ratioAlpha;
 
     const roundOral = Math.round(displayPctOral);
     const roundThroat = 100 - roundOral;
@@ -2766,8 +2776,8 @@ function loop(timestamp) {
 
     const rawDbOral = 10 * Math.log10(pOral || 1e-10);
     const rawDbThroat = 10 * Math.log10(pThroat || 1e-10);
-    displayDbOral = displayDbOral * (1 - alpha) + rawDbOral * alpha;
-    displayDbThroat = displayDbThroat * (1 - alpha) + rawDbThroat * alpha;
+    displayDbOral = displayDbOral * (1 - ratioAlpha) + rawDbOral * ratioAlpha;
+    displayDbThroat = displayDbThroat * (1 - ratioAlpha) + rawDbThroat * ratioAlpha;
 
     oralDbText.textContent = `${Math.round(displayDbOral)}dB`;
     throatDbText.textContent = `${Math.round(displayDbThroat)}dB`;
@@ -2782,7 +2792,7 @@ function loop(timestamp) {
         const rOther = Math.max(0, 100 - (rF0 + rLowP + rHighP + rTwang));
         targetRatios = [rF0, rLowP, rHighP, rTwang, rOther];
     }
-    for (let k = 0; k < 5; k++) displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
+    for (let k = 0; k < 5; k++) displayRatios[k] = displayRatios[k] * (1 - ratioAlpha) + targetRatios[k] * ratioAlpha;
     const [srF0, srLowP, srHighP, srTwang, srOther] = displayRatios.map(v => Math.round(v));
 
     segF0.style.width = `${srF0}%`; segF0.textContent = srF0 > 5 ? `${srF0}%` : '';
