@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Vocal Analyzer Pro v9.0 (Rev1.3)</title>
+    <title>Vocal Analyzer Pro v9.0 (Rev1.4)</title>
     <!-- HTML全体を高画質キャプチャするための外部ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -1131,7 +1131,7 @@
 
     <!-- コントロールパネル (第6カード / 2×7グリッドへ拡張) -->
     <div class="card-common controls-grid-section">
-        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.3)</div>
+        <div class="controls-grid-header">コントロールパネル (v9.0 Rev1.4)</div>
         <div class="seven-cols-container">
             <div class="col-item">
                 <span class="col-label" style="color:var(--text-main)">閾値</span>
@@ -1260,7 +1260,7 @@
     <!-- SPEC 解析レンズ モーダル -->
     <div class="modal-overlay" id="specModal">
         <div class="modal-header">
-            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.3</div>
+            <div class="modal-title">SPEC 解析レンズ v9.0 Rev1.4</div>
             <button class="btn-modal-close" id="btnModalClose">閉じる</button>
         </div>
         <div class="modal-content-scroll" id="specAlgoListContainer"></div>
@@ -1276,10 +1276,10 @@
             <div class="setting-group">
                 <div class="setting-title">基本の使い方</div>
                 <div class="setting-row" style="flex-direction:column; align-items:flex-start; gap:4px; font-size:0.5rem; color:var(--text-sub);">
-                    <span>1. <b>START</b> ボタンを押してマイク解析を開始します。</span>
+                    <span>1. **START** ボタンを押してマイク解析を開始します。</span>
                     <span>2. 発声すると、基音(F0)や口・喉の共鳴比率がリアルタイムで表示されます。</span>
-                    <span>3. <b>SPEC</b> ボタンやグラフカードタップで様々な解析モードや設定に切り替えられます。</span>
-                    <span>4. <b>BGM</b> や <b>太鼓</b> ボタンで練習用の伴奏やメトロノームを鳴らせます。</span>
+                    <span>3. **SPEC** ボタンやグラフカードタップで様々な解析モードや設定に切り替えられます。</span>
+                    <span>4. **BGM** や **太鼓** ボタンで練習用の伴奏やメトロノームを鳴らせます。</span>
                 </div>
             </div>
         </div>
@@ -1532,17 +1532,13 @@ let displayDbOral = -80;
 let displayDbThroat = -80;
 let displayRatios = [20, 20, 20, 20, 20];
 
-/* Safari（ProMotion 120Hz / AGC / 無音-Infinity / 倍音飛び移り）対策用 時系列安定化状態 */
 let lastLoopTimestamp = 0;
-let smoothedSpectrumArray = null;
-let lockedF0Bin = -1;
-let lockedPeakBin = -1;
-let smoothedF0Hz = 0;
-let smoothedF0Db = -120;
-let smoothedMaxHz = 0;
-let smoothedMaxDb = -120;
-let smoothedDeltaDb = 0;
-let smoothedHnrScore = 0;
+let displayF0Hz = 0;
+let displayF0Db = -120;
+let displayMaxHz = 0;
+let displayMaxDb = -120;
+let displayDeltaDb = 0;
+let displayHnrScore = 0;
 
 const fileNameDisplay = document.getElementById('fileNameDisplay');
 const fileTimeDisplay = document.getElementById('fileTimeDisplay');
@@ -1664,30 +1660,18 @@ const taikoGainVal = document.getElementById('taikoGainVal');
 let currentStableStatus = "通常発声";
 let currentStableColor = "#ffffff";
 let statusStableElapsedSec = 0;
-const STATUS_STABLE_DURATION_SEC = 0.22;
+const STATUS_STABLE_DURATION_SEC = 0.18;
 
 let f0HzValGlobal = 0;
 let maxHzGlobal = 0;
 
-/* --- 連続周波数推定用パラボリック補間ヘルパー --- */
-function interpolateBin(arr, bin, len) {
-    if (bin <= 0 || bin >= len - 1) return bin;
-    const y0 = arr[bin - 1];
-    const y1 = arr[bin];
-    const y2 = arr[bin + 1];
-    const denom = (y0 - 2 * y1 + y2);
-    if (Math.abs(denom) < 1e-6) return bin;
-    const delta = 0.5 * (y0 - y2) / denom;
-    return bin + Math.max(-0.5, Math.min(0.5, delta));
-}
-
-/* --- AnalyserNode の smoothingTimeConstant をユーザー設定と同期するヘルパー --- */
-function syncAnalyserSmoothing() {
+/* Safari WebKit 用の実効 smoothingTimeConstant 同期関数 */
+function applyEffectiveAnalyserSmoothing() {
     if (!analyser) return;
     const baseSmooth = parseFloat(fftSmoothParam.value);
-    const userSmooth = parseFloat(smoothSlider.value);
-    // Safariの細かなブレを抑えるため、baseSmoothを下限としつつ平滑化スライダーに応じて最大0.96まで連動
-    const combined = Math.min(0.96, baseSmooth + (1.0 - baseSmooth) * (userSmooth * 0.75));
+    const userSmoothSec = parseFloat(smoothSlider.value);
+    // Safariの120Hz描画環境でもネイティブFFTバッファが滑らかに減衰するよう結合
+    const combined = Math.min(0.97, baseSmooth + (1.0 - baseSmooth) * (userSmoothSec * 0.85));
     analyser.smoothingTimeConstant = combined;
 }
 
@@ -2124,14 +2108,11 @@ btnFftClose.addEventListener('click', () => fftConfigModal.classList.remove('act
 
 fftSizeSelect.addEventListener('change', (e) => {
     currentFFTSize = parseInt(e.target.value);
-    smoothedSpectrumArray = null;
-    lockedF0Bin = -1;
-    lockedPeakBin = -1;
     if (analyser) analyser.fftSize = currentFFTSize;
 });
 
 fftSmoothParam.addEventListener('input', () => {
-    syncAnalyserSmoothing();
+    applyEffectiveAnalyserSmoothing();
 });
 
 fftMaxHzSelect.addEventListener('change', (e) => {
@@ -2355,7 +2336,7 @@ faderPairs.forEach(pair => {
             threshVal.textContent = `${Math.round(e.target.value)}dB`;
         } else if (e.target === smoothSlider) {
             smoothVal.textContent = `${parseFloat(e.target.value).toFixed(2)}s`;
-            syncAnalyserSmoothing();
+            applyEffectiveAnalyserSmoothing();
         }
     });
 });
@@ -2545,16 +2526,13 @@ function masterReset() {
 
     currentMode = "IDLE";
     activeSourceNode = null;
-    smoothedSpectrumArray = null;
     lastLoopTimestamp = 0;
-    lockedF0Bin = -1;
-    lockedPeakBin = -1;
-    smoothedF0Hz = 0;
-    smoothedF0Db = -120;
-    smoothedMaxHz = 0;
-    smoothedMaxDb = -120;
-    smoothedDeltaDb = 0;
-    smoothedHnrScore = 0;
+    displayF0Hz = 0;
+    displayF0Db = -120;
+    displayMaxHz = 0;
+    displayMaxDb = -120;
+    displayDeltaDb = 0;
+    displayHnrScore = 0;
 
     btnStart.textContent = "START";
     btnStart.style.backgroundColor = "var(--f0-color)";
@@ -2584,9 +2562,8 @@ async function toggleMicMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        syncAnalyserSmoothing();
+        applyEffectiveAnalyserSmoothing();
 
-        // SafariのAGC（自動ゲイン制御）によるコロコロした入力レベル変動を防止
         const micConstraints = {
             audio: {
                 autoGainControl: false,    
@@ -2630,7 +2607,7 @@ async function toggleTestMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        syncAnalyserSmoothing();
+        applyEffectiveAnalyserSmoothing();
 
         testOscillator = audioCtx.createOscillator();
         testGain = audioCtx.createGain();
@@ -2690,7 +2667,7 @@ async function toggleRecordMode() {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        syncAnalyserSmoothing();
+        applyEffectiveAnalyserSmoothing();
 
         const recConstraints = {
             audio: {
@@ -2767,7 +2744,7 @@ async function startFileMode(file) {
 
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = currentFFTSize;
-        syncAnalyserSmoothing();
+        applyEffectiveAnalyserSmoothing();
 
         audioElement = document.createElement('audio');
         audioElement.preload = 'auto';
@@ -2942,15 +2919,22 @@ function loop(timestamp) {
     const rawDataArray = new Float32Array(bufferLength);
     analyser.getFloatFrequencyData(rawDataArray);
 
-    const sampleRate = audioCtx ? audioCtx.sampleRate : 44100;
+    // Safariが返す -Infinity / NaN を即座にサニタイズ
+    for (let i = 0; i < bufferLength; i++) {
+        if (!Number.isFinite(rawDataArray[i]) || rawDataArray[i] < -140) {
+            rawDataArray[i] = -140;
+        }
+    }
+
+    const sampleRate = audioCtx ? audioCtx.sampleRate : 48000;
     const binHz = (sampleRate / 2) / bufferLength;
     const threshold = parseFloat(threshSlider.value) + parseFloat(fftPeakSens.value);
     const smoothTimeSec = parseFloat(smoothSlider.value);
 
-    // Safari (120Hz ProMotion等) でもフレームレート非依存で滑らかに追従する時定数
-    const barAlpha = 1.0 - Math.exp(-dt / Math.max(0.055, smoothTimeSec));
-    const specAlpha = 1.0 - Math.exp(-dt / Math.max(0.055, smoothTimeSec * 0.9));
-    const metricAlpha = 1.0 - Math.exp(-dt / Math.max(0.075, smoothTimeSec));
+    // ProMotion 120Hz を含む全フレームレート環境で同一の滑らかさを保つ実時間ベースEMA係数
+    const effectiveSmoothSec = Math.max(0.05, smoothTimeSec);
+    const alpha = 1.0 - Math.exp(-dt / effectiveSmoothSec);
+    const numAlpha = 1.0 - Math.exp(-dt / Math.max(0.075, smoothTimeSec));
 
     const weightF0 = parseFloat(wF0.value);
     const weightLowP = parseFloat(wLowP.value);
@@ -2958,37 +2942,25 @@ function loop(timestamp) {
     const weightTwang = parseFloat(wTwang.value);
     const weightOther = parseFloat(wOther.value);
 
-    if (!smoothedSpectrumArray || smoothedSpectrumArray.length !== bufferLength) {
-        smoothedSpectrumArray = new Float32Array(bufferLength);
-        for (let i = 0; i < bufferLength; i++) {
-            const v = rawDataArray[i];
-            smoothedSpectrumArray[i] = Number.isFinite(v) ? Math.max(-130, v) : -130;
-        }
-    }
-
-    // 1. 全周波数ビンを統一された平滑化配列へ更新（Safariの-Infinity対策＆混在比較の排除）
-    for (let i = 0; i < bufferLength; i++) {
-        const rawV = rawDataArray[i];
-        const clampedRaw = Number.isFinite(rawV) ? Math.max(-130, rawV) : -130;
-        smoothedSpectrumArray[i] += (clampedRaw - smoothedSpectrumArray[i]) * specAlpha;
-    }
-
     const processedDataArray = new Float32Array(bufferLength);
 
     let pF0 = 0, pLowP = 0, pHighP = 0, pTwang = 0, pOther = 0;
     let pOral = 0, pThroat = 0;
 
-    let bestF0Bin = -1, bestF0Db = -999;
-    let bestPeakBin = -1, bestPeakDb = -999;
+    let maxDb = -999;
+    let maxHz = 0;
+    let f0HzVal = 0, f0DbVal = -999;
+    let foundF0Candidate = false;
 
     let totalHarmonicPower = 0;
     let totalNoisePower = 0;
 
-    // 2. 平滑化済みスペクトルのみを使って一貫したエネルギー計算とピーク探索を実行
+    // 高域エイリアシングノイズ（6kHz以上の折り返しスパイク）を拾わないよう探索上限を設定
+    const peakSearchUpperHz = Math.min(maxDisplayHz, 5800);
+
     for (let i = 0; i < bufferLength; i++) {
         const hz = i * binHz;
-        const rawDb = smoothedSpectrumArray[i];
-
+        const rawDb = rawDataArray[i];
         let power = Math.pow(10, rawDb / 10);
         let bandWeight = 1.0;
 
@@ -3001,7 +2973,7 @@ function loop(timestamp) {
         let effectiveDb = rawDb;
         if (globalPrePostMode === "POST") {
             let adjustedPower = power * bandWeight;
-            effectiveDb = adjustedPower > 1e-13 ? 10 * Math.log10(adjustedPower) : -130;
+            effectiveDb = adjustedPower > 1e-12 ? 10 * Math.log10(adjustedPower) : -120;
         }
         processedDataArray[i] = effectiveDb;
 
@@ -3010,11 +2982,11 @@ function loop(timestamp) {
             if (hz <= 600) {
                 calcPower *= weightF0;
                 pF0 += calcPower;
-                if (rawDb > threshold && i > 0 && i < bufferLength - 1) {
-                    const isLocalPeak = (rawDb >= smoothedSpectrumArray[i - 1] && rawDb >= smoothedSpectrumArray[i + 1]);
-                    if (isLocalPeak && bestF0Bin === -1) {
-                        bestF0Bin = i;
-                        bestF0Db = rawDb;
+                if (!foundF0Candidate && rawDb > threshold && i > 0 && i < bufferLength - 1) {
+                    if (rawDb > rawDataArray[i-1] && rawDb >= rawDataArray[i+1]) {
+                        f0DbVal = rawDb;
+                        f0HzVal = hz;
+                        foundF0Candidate = true;
                     }
                 }
             } else if (hz <= 1500) {
@@ -3035,84 +3007,54 @@ function loop(timestamp) {
             if (hz >= 3900) pThroat += calcPower;
         }
 
-        if (hz > 600 && hz <= maxDisplayHz && effectiveDb > bestPeakDb) {
-            bestPeakDb = effectiveDb;
-            bestPeakBin = i;
+        if (hz > 600 && hz <= peakSearchUpperHz && effectiveDb > maxDb) {
+            maxDb = effectiveDb;
+            maxHz = hz;
         }
     }
 
-    if (bestF0Bin === -1) {
+    if (!foundF0Candidate) {
+        let maxF0Db = -999;
         for (let i = 0; i < bufferLength; i++) {
             const hz = i * binHz;
             if (hz >= 100 && hz <= 600) {
-                const db = smoothedSpectrumArray[i];
-                if (db > bestF0Db) {
-                    bestF0Db = db;
-                    bestF0Bin = i;
+                const db = rawDataArray[i];
+                if (db > maxF0Db) {
+                    maxF0Db = db;
+                    f0DbVal = db;
+                    f0HzVal = hz;
                 }
             }
         }
     }
 
-    // 3. ヒステリシス付きピークロック（倍音間のコロコロとした飛び移りを防止）
-    if (bestF0Bin > 0 && bestF0Db > threshold) {
-        if (lockedF0Bin > 0 && lockedF0Bin < bufferLength && smoothedSpectrumArray[lockedF0Bin] > threshold) {
-            const lockedDb = smoothedSpectrumArray[lockedF0Bin];
-            if (Math.abs(bestF0Bin - lockedF0Bin) <= 2 || bestF0Db > lockedDb + 2.5) {
-                lockedF0Bin = bestF0Bin;
-            }
-        } else {
-            lockedF0Bin = bestF0Bin;
-        }
-    } else {
-        lockedF0Bin = -1;
-    }
-
-    if (bestPeakBin > 0 && bestPeakDb > threshold) {
-        if (lockedPeakBin > 0 && lockedPeakBin < bufferLength && processedDataArray[lockedPeakBin] > threshold) {
-            const lockedDb = processedDataArray[lockedPeakBin];
-            if (Math.abs(bestPeakBin - lockedPeakBin) <= 3 || bestPeakDb > lockedDb + 2.5) {
-                lockedPeakBin = bestPeakBin;
-            }
-        } else {
-            lockedPeakBin = bestPeakBin;
-        }
-    } else {
-        lockedPeakBin = -1;
-    }
-
-    const f0HzVal = lockedF0Bin > 0 ? interpolateBin(smoothedSpectrumArray, lockedF0Bin, bufferLength) * binHz : 0;
-    const f0DbVal = lockedF0Bin > 0 ? smoothedSpectrumArray[lockedF0Bin] : -120;
-    const maxHz = lockedPeakBin > 0 ? interpolateBin(processedDataArray, lockedPeakBin, bufferLength) * binHz : 0;
-    const maxDb = lockedPeakBin > 0 ? processedDataArray[lockedPeakBin] : -120;
-
-    // 4. メトリクス数値の滑らかな追従
+    // 数値・マーカーの滑らか追従とヒステリシス安定化
     if (f0DbVal > threshold && f0HzVal > 0) {
-        if (smoothedF0Hz <= 0 || Math.abs(f0HzVal - smoothedF0Hz) > 90) {
-            smoothedF0Hz = f0HzVal;
+        if (displayF0Hz <= 0 || Math.abs(f0HzVal - displayF0Hz) > 85) {
+            displayF0Hz = f0HzVal;
         } else {
-            smoothedF0Hz += (f0HzVal - smoothedF0Hz) * metricAlpha;
+            displayF0Hz = displayF0Hz + (f0HzVal - displayF0Hz) * numAlpha;
         }
-        smoothedF0Db = smoothedF0Db <= -110 ? f0DbVal : (smoothedF0Db + (f0DbVal - smoothedF0Db) * metricAlpha);
+        displayF0Db = displayF0Db <= -110 ? f0DbVal : (displayF0Db + (f0DbVal - displayF0Db) * numAlpha);
     } else {
-        smoothedF0Hz = 0;
-        smoothedF0Db = -120;
+        displayF0Hz = 0;
+        displayF0Db = -120;
     }
 
     if (maxDb > threshold && maxHz > 0) {
-        if (smoothedMaxHz <= 0 || Math.abs(maxHz - smoothedMaxHz) > 450) {
-            smoothedMaxHz = maxHz;
+        if (displayMaxHz <= 0 || Math.abs(maxHz - displayMaxHz) > 400) {
+            displayMaxHz = maxHz;
         } else {
-            smoothedMaxHz += (maxHz - smoothedMaxHz) * metricAlpha;
+            displayMaxHz = displayMaxHz + (maxHz - displayMaxHz) * numAlpha;
         }
-        smoothedMaxDb = smoothedMaxDb <= -110 ? maxDb : (smoothedMaxDb + (maxDb - smoothedMaxDb) * metricAlpha);
+        displayMaxDb = displayMaxDb <= -110 ? maxDb : (displayMaxDb + (maxDb - displayMaxDb) * numAlpha);
     } else {
-        smoothedMaxHz = 0;
-        smoothedMaxDb = -120;
+        displayMaxHz = 0;
+        displayMaxDb = -120;
     }
 
-    f0HzValGlobal = smoothedF0Hz;
-    maxHzGlobal = smoothedMaxHz;
+    f0HzValGlobal = displayF0Hz;
+    maxHzGlobal = displayMaxHz;
 
     if (f0HzValGlobal > 0) {
         pitchHistoryBuffer.push({ time: now, f0: f0HzValGlobal });
@@ -3147,8 +3089,8 @@ function loop(timestamp) {
     const rawOverallHnr = (totalHarmonicPower + totalNoisePower) > 0 
         ? (totalHarmonicPower / (totalHarmonicPower + totalNoisePower)) * 100 
         : 0;
-    smoothedHnrScore += (rawOverallHnr - smoothedHnrScore) * metricAlpha;
-    const currentOverallHnr = Math.round(smoothedHnrScore);
+    displayHnrScore = displayHnrScore + (rawOverallHnr - displayHnrScore) * numAlpha;
+    const currentOverallHnr = Math.round(displayHnrScore);
 
     if (selectedMainMode === 'harmonicClarity') {
         if (currentOverallHnr >= 85 && f0HzValGlobal > 0) {
@@ -3160,19 +3102,19 @@ function loop(timestamp) {
         spectrumCard.classList.remove('hnr-pass-flash');
     }
 
-    if (f0DbVal > threshold && smoothedF0Hz > 0) {
-        f0Hz.innerHTML = `${Math.round(smoothedF0Hz)}<span style="font-size:0.5rem">Hz</span>`;
-        f0Db.innerHTML = `${Math.round(smoothedF0Db)}<span style="font-size:0.5rem">dB</span>`;
-        noteName.textContent = hzToNote(smoothedF0Hz);
+    if (f0DbVal > threshold && displayF0Hz > 0) {
+        f0Hz.innerHTML = `${Math.round(displayF0Hz)}<span style="font-size:0.5rem">Hz</span>`;
+        f0Db.innerHTML = `${Math.round(displayF0Db)}<span style="font-size:0.5rem">dB</span>`;
+        noteName.textContent = hzToNote(displayF0Hz);
     } else {
         f0Hz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
         f0Db.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
         noteName.textContent = '--';
     }
 
-    if (maxDb > threshold && smoothedMaxHz > 0) {
-        harmHz.innerHTML = `${Math.round(smoothedMaxHz)}<span style="font-size:0.5rem">Hz</span>`;
-        harmDb.innerHTML = `${Math.round(smoothedMaxDb)}<span style="font-size:0.5rem">dB</span>`;
+    if (maxDb > threshold && displayMaxHz > 0) {
+        harmHz.innerHTML = `${Math.round(displayMaxHz)}<span style="font-size:0.5rem">Hz</span>`;
+        harmDb.innerHTML = `${Math.round(displayMaxDb)}<span style="font-size:0.5rem">dB</span>`;
     } else {
         harmHz.innerHTML = `--<span style="font-size:0.5rem">Hz</span>`;
         harmDb.innerHTML = `--<span style="font-size:0.5rem">dB</span>`;
@@ -3184,8 +3126,8 @@ function loop(timestamp) {
         targetPctOral = Math.round((pOral / sumOralThroat) * 100);
         targetPctThroat = 100 - targetPctOral;
     }
-    displayPctOral = displayPctOral * (1 - barAlpha) + targetPctOral * barAlpha;
-    displayPctThroat = displayPctThroat * (1 - barAlpha) + targetPctThroat * barAlpha;
+    displayPctOral = displayPctOral * (1 - alpha) + targetPctOral * alpha;
+    displayPctThroat = displayPctThroat * (1 - alpha) + targetPctThroat * alpha;
 
     const roundOral = Math.round(displayPctOral);
     const roundThroat = 100 - roundOral;
@@ -3197,8 +3139,8 @@ function loop(timestamp) {
 
     const rawDbOral = 10 * Math.log10(pOral || 1e-10);
     const rawDbThroat = 10 * Math.log10(pThroat || 1e-10);
-    displayDbOral = displayDbOral * (1 - barAlpha) + rawDbOral * barAlpha;
-    displayDbThroat = displayDbThroat * (1 - barAlpha) + rawDbThroat * barAlpha;
+    displayDbOral = displayDbOral * (1 - alpha) + rawDbOral * alpha;
+    displayDbThroat = displayDbThroat * (1 - alpha) + rawDbThroat * alpha;
 
     oralDbText.textContent = `${Math.round(displayDbOral)}dB`;
     throatDbText.textContent = `${Math.round(displayDbThroat)}dB`;
@@ -3214,7 +3156,7 @@ function loop(timestamp) {
         targetRatios = [rF0, rLowP, rHighP, rTwang, rOther];
     }
     for (let k = 0; k < 5; k++) {
-        displayRatios[k] = displayRatios[k] * (1 - barAlpha) + targetRatios[k] * barAlpha;
+        displayRatios[k] = displayRatios[k] * (1 - alpha) + targetRatios[k] * alpha;
     }
     const [srF0, srLowP, srHighP, srTwang, srOther] = displayRatios.map(v => Math.round(v));
 
@@ -3225,9 +3167,9 @@ function loop(timestamp) {
     segOther.style.width = `${srOther}%`; segOther.textContent = srOther > 5 ? `${srOther}%` : '';
 
     if (f0DbVal > threshold && maxDb > threshold) {
-        const rawDelta = smoothedMaxDb - smoothedF0Db;
-        smoothedDeltaDb += (rawDelta - smoothedDeltaDb) * metricAlpha;
-        const delta = Math.round(smoothedDeltaDb);
+        const rawDelta = displayMaxDb - displayF0Db;
+        displayDeltaDb = displayDeltaDb + (rawDelta - displayDeltaDb) * numAlpha;
+        const delta = Math.round(displayDeltaDb);
         deltaText.textContent = isNaN(delta) ? '-- dB' : `${delta > 0 ? '+' : ''}${delta}dB`;
     } else {
         deltaText.textContent = '-- dB';
@@ -3236,14 +3178,14 @@ function loop(timestamp) {
     let rawStatus = "通常発声";
     let rawColor = "#ffffff";
 
-    if (maxDb > threshold && smoothedMaxHz > 0) {
-        if (smoothedMaxHz >= 1500 && smoothedMaxHz <= 2500) {
+    if (maxDb > threshold && displayMaxHz > 0) {
+        if (displayMaxHz >= 1500 && displayMaxHz <= 2500) {
             rawStatus = "高音ファリンジャル共鳴";
             rawColor = COLOR_HIGH_P;
-        } else if (smoothedMaxHz >= 600 && smoothedMaxHz < 1500) {
+        } else if (displayMaxHz >= 600 && displayMaxHz < 1500) {
             rawStatus = "低音ファリンジャル共鳴";
             rawColor = COLOR_LOW_P;
-        } else if (smoothedMaxHz > 2500) {
+        } else if (displayMaxHz > 2500) {
             rawStatus = "喉トワング強調";
             rawColor = COLOR_TWANG;
         }
@@ -3270,15 +3212,15 @@ function loop(timestamp) {
 
     if (selectedMainMode === 'fft') {
         if (fftSubMode === 'log') {
-            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
+            drawSpectrumLog(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
         } else {
-            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
+            drawSpectrumLinear(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
         }
     } else if (selectedMainMode === 'comb') {
         if (combSubMode === 'hz') {
-            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
+            drawHarmonicCombHz(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
         } else {
-            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, smoothedF0Hz, smoothedMaxHz);
+            drawHarmonicAxis(processedDataArray, bufferLength, binHz, threshold, displayF0Hz, displayMaxHz);
         }
     } else if (selectedMainMode === 'sonogram') {
         if (sonoAxisMode === 'tracer') {
@@ -4246,20 +4188,24 @@ function drawSpreadConcentrationMap(dataArray, bufferLength, binHz, threshold) {
     ctx.textAlign = 'right';
     ctx.fillText("■ 空間拡散・響ゾーン", dX2 - 4, topMargin + 10);
 
-    // 4つの発声特徴ラベルの配置
+    // 4つの発声特徴ラベルの配置（グラフ上で邪魔にならないよう背景透過・控えめな明度で各エリアに配置）
     ctx.font = '6.5px sans-serif';
+    // ③ 音頭取りのチャント・鋭いトワング発声（遠達ボイス）【左上】
     ctx.fillStyle = 'rgba(167, 243, 208, 0.72)';
     ctx.textAlign = 'left';
     ctx.fillText("③ 音頭チャント・鋭いトワング(遠達)", lX1 + 4, lY1 + 21);
 
+    // ② クラシック的なオペラ発声（豊かな母音・ファリンジャル傾向）【中央〜やや右寄り・中段】
     ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
     ctx.textAlign = 'center';
     ctx.fillText("② クラシック・オペラ発声(豊母音/Phar)", leftMargin + graphWidth * 0.65, topMargin + graphHeight * 0.52);
 
+    // ④ 喉を絞りすぎた雑音・潰れた声（力みすぎた発声）【左下〜中央下】
     ctx.fillStyle = 'rgba(253, 186, 116, 0.72)';
     ctx.textAlign = 'left';
     ctx.fillText("④ 喉絞り雑音・潰れた声(力み)", leftMargin + 4, topMargin + graphHeight - 6);
 
+    // ① ウィスパーボイス（息もれ声・ささやき声）【右下】
     ctx.fillStyle = 'rgba(203, 213, 225, 0.72)';
     ctx.textAlign = 'right';
     ctx.fillText("① ウィスパーボイス(息もれ/ささやき)", dX2 - 4, topMargin + graphHeight - 6);
